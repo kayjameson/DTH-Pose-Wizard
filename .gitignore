@@ -1,0 +1,12 @@
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+*.sln
+*.suo
+*.VC.db
+.vs/
+
+# Measurements of DTH content and anything sampled from a user's Daz library never belong in this repo.
+*BodyRig*.json
+DTH_PoseSamples.json
