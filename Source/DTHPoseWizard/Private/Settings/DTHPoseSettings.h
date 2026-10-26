@@ -21,11 +21,15 @@ public:
 	FFilePath SamplesFile;
 
 	/**
-	 * Optional: samples of the character itself in Daz (the sampler's "figure" argument). Its UnrealPose joints map the
-	 * UE bones to Daz bones exactly; without it the library's base Genesis 9 joints are used.
+	 * Testing only: a character sampled in Daz itself (the sampler's "figure" argument), to measure the bone map and axes
+	 * again and check them against the shipped ones (DTH.Pose.P0.DazMapping). The product never needs it.
 	 */
-	UPROPERTY(config, EditAnywhere, Category = "Library", meta = (DisplayName = "Character Joints File", FilePathFilter = "json"))
+	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "Character Joints File", FilePathFilter = "json"))
 	FFilePath CharacterJointsFile;
+
+	/** A second DTH Genesis 9 character, for the cross-character checks (DTH.Pose.P0.CrossCharacter). */
+	UPROPERTY(config, EditAnywhere, Category = "Testing", meta = (DisplayName = "Second Character", AllowedClasses = "/Script/Engine.SkeletalMesh"))
+	FSoftObjectPath SecondCharacter;
 
 	/** A DTH Genesis 9 character: a skeletal mesh with DTH's post-process blueprint, as the DTH import sets it up. */
 	UPROPERTY(config, EditAnywhere, Category = "Character", meta = (DisplayName = "Character", AllowedClasses = "/Script/Engine.SkeletalMesh"))

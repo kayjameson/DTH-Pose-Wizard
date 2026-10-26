@@ -68,6 +68,13 @@ namespace DTHPoseSolve
 	FAxes FitAxes(const FDTHDazState& DazRest, const FReferenceSkeleton& Ref, const TArray<FTransform>& MeshRest,
 		double MatchCm = InlierCm);
 
+	/** Daz world space to UE component space for every DTH Genesis 9 character: ue = (daz.x, daz.z, daz.y), cm (measured,
+	 * DTH.Pose.P0.DazMapping: scale 1.00016, offset under 0.02 cm). */
+	FAxes DazToUE();
+
+	/** The shipped mapping (DTHBoneMap) on this skeleton; bones the table names that the skeleton lacks are left out. */
+	FMapping MapFromTable(const FReferenceSkeleton& Ref);
+
 	/** Maps each UE bone to the Daz bone nearest its joint, within MaxCm. */
 	FMapping MapBones(const FAxes& Axes, const FDTHDazState& DazRest, const FReferenceSkeleton& Ref,
 		const TArray<FTransform>& MeshRest, double MaxCm);

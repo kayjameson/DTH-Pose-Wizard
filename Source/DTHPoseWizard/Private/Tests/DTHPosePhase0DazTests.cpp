@@ -39,8 +39,8 @@ namespace
 	}
 
 	/**
-	 * The rig on the character: UE bind pose, Daz UnrealPose (ROM frame 1) rotations from the library samples, and the
-	 * axes and bone mapping from the character's own joints when Character Joints File is set.
+	 * The rig on any DTH Genesis 9 character, as the product builds it: the shipped bone map and axes, the library's
+	 * UnrealPose (ROM frame 1) rotations, the character's own bind pose. Nothing sampled from the character in Daz.
 	 */
 	DTHPoseSolve::FRig MakeRig(FAutomationTestBase& Test, const USkeletalMesh& Mesh, const FDTHPoseSamples& Samples)
 	{
@@ -48,14 +48,8 @@ namespace
 		DTHPoseSolve::FRig Rig;
 		Rig.DazRest = Samples.RomFrames[1];
 		Rig.MeshRest = DTHPoseSolve::ComponentSpace(Ref, [&Ref](int32 I) { return Ref.GetRefBonePose()[I]; });
-		FDTHPoseSamples Joints;
-		FString Error;
-		const FString JointsFile = GetDefault<UDTHPoseSettings>()->CharacterJointsFile.FilePath;
-		const bool bOwn = !JointsFile.IsEmpty() && Joints.Load(JointsFile, Error) && Joints.RomFrames.Num() > 1;
-		const FDTHDazState& At = bOwn ? Joints.RomFrames[1] : Rig.DazRest;
-		Test.AddInfo(bOwn ? TEXT("Joints: the character's own (Character Joints File).") : TEXT("Joints: the library's base Genesis 9."));
-		Rig.Axes = DTHPoseSolve::FitAxes(At, Ref, Rig.MeshRest);
-		Rig.Map = DTHPoseSolve::MapBones(Rig.Axes, At, Ref, Rig.MeshRest, MapMaxCm);
+		Rig.Axes = DTHPoseSolve::DazToUE();
+		Rig.Map = DTHPoseSolve::MapFromTable(Ref);
 		// The library figure on the character: its proportions differ, so it is matched loosely (3 cm) and scaled.
 		Rig.LibraryAxes = DTHPoseSolve::FitAxes(Rig.DazRest, Ref, Rig.MeshRest, 3.0);
 		Test.AddInfo(FString::Printf(TEXT("Library on the character: %s"), *Rig.LibraryAxes.Describe()));
@@ -65,18 +59,52 @@ namespace
 	bool IsTwist(FName Bone) { return Bone.ToString().Contains(TEXT("twist")); }
 }
 
-// Plan section 4.5: the axis conversion and the bone mapping, measured on UnrealPose (ROM frame 1) against the bind
-// pose. Pass: the axes put the joints within 0.1 cm (median) and every limb, spine, neck, head, hand and finger bone
-// maps.
+// Plan section 4.5: the shipped bone map (DTHBoneMap) and axes. On every character: the map's bones are on its
+// skeleton. With Character Joints File set (a character sampled in Daz, as Vi was to measure the map): the axes and
+// the map are measured again from its UnrealPose joints and must agree with the shipped ones. Pass: the measured
+// axes put the joints within 0.1 cm (median), every measured mapping equals the table, and every limb, spine, neck,
+// head, hand and finger bone maps.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDTHPoseP0DazMapping, "DTH.Pose.P0.DazMapping", Flags)
 bool FDTHPoseP0DazMapping::RunTest(const FString&)
 {
 	FDTHPoseTestContext C;
 	if (!C.Load(*this)) return false;
-	FDTHPoseSamples Samples;
-	if (!LoadSamples(*this, Samples)) return false;
-	const DTHPoseSolve::FRig Rig = MakeRig(*this, *C.Mesh, Samples);
 	const FReferenceSkeleton& Ref = C.Mesh->GetRefSkeleton();
+	const DTHPoseSolve::FMapping Table = DTHPoseSolve::MapFromTable(Ref);
+	for (const TCHAR* Must : {TEXT("pelvis"), TEXT("spine_01"), TEXT("neck_01"), TEXT("head"), TEXT("thigh_l"), TEXT("calf_l"),
+		TEXT("foot_l"), TEXT("ball_l"), TEXT("clavicle_l"), TEXT("upperarm_l"), TEXT("lowerarm_l"), TEXT("hand_l"), TEXT("index_01_l"),
+		TEXT("thumb_01_l")})
+	{
+		const int32 I = Ref.FindBoneIndex(Must);
+		if (I == INDEX_NONE || Table.Daz[I].IsNone()) AddError(FString::Printf(TEXT("%s is not in the bone map on this skeleton."), Must));
+	}
+	FDTHPoseSamples Joints;
+	FString Error;
+	const FString JointsFile = GetDefault<UDTHPoseSettings>()->CharacterJointsFile.FilePath;
+	if (JointsFile.IsEmpty() || !Joints.Load(JointsFile, Error) || Joints.RomFrames.Num() < 2)
+	{
+		AddInfo(TEXT("No Character Joints File: the shipped map is checked against the skeleton only."));
+		return true;
+	}
+	DTHPoseSolve::FRig Rig;
+	Rig.MeshRest = DTHPoseSolve::ComponentSpace(Ref, [&Ref](int32 I) { return Ref.GetRefBonePose()[I]; });
+	Rig.Axes = DTHPoseSolve::FitAxes(Joints.RomFrames[1], Ref, Rig.MeshRest);
+	Rig.Map = DTHPoseSolve::MapBones(Rig.Axes, Joints.RomFrames[1], Ref, Rig.MeshRest, MapMaxCm);
+	int32 Disagree = 0;
+	for (int32 I = 0; I < Ref.GetNum(); ++I)
+	{
+		if (Rig.Map.Daz[I] != Table.Daz[I] && !Ref.GetBoneName(I).ToString().StartsWith(TEXT("gp9_")))
+		{
+			++Disagree;
+			AddError(FString::Printf(TEXT("%s: measured %s, the table has %s."), *Ref.GetBoneName(I).ToString(),
+				*Rig.Map.Daz[I].ToString(), *Table.Daz[I].ToString()));
+		}
+	}
+	const DTHPoseSolve::FAxes Shipped = DTHPoseSolve::DazToUE();
+	for (int32 R = 0; R < 3; ++R)
+		for (int32 K = 0; K < 3; ++K)
+			if (Rig.Axes.M[R][K] != Shipped.M[R][K]) AddError(TEXT("The measured axes differ from the shipped ones."));
+	AddInfo(FString::Printf(TEXT("Measured from the character's own joints: %d bones differ from the shipped map."), Disagree));
 
 	TArray<FString> Lines{TEXT("index\tue_bone\tdaz_bone\tdistance_cm\tnext_daz\tnext_cm")};
 	TMap<FName, TArray<FName>> ByDaz;
@@ -248,7 +276,7 @@ bool FDTHPoseP0PresetPoses::RunTest(const FString&)
 		{
 			Track.Add(Ref.GetBoneName(I), DTHRetarget::Inverse(Retarget[I], Wanted.FindChecked(Ref.GetBoneName(I))));
 		}
-		const FString Name = TEXT("A_Preset_") + FPaths::MakeValidFileName(Pose.Label).Replace(TEXT(" "), TEXT("_"));
+		const FString Name = TEXT("A_Preset_") + C.Mesh->GetName() + TEXT("_") + FPaths::MakeValidFileName(Pose.Label).Replace(TEXT(" "), TEXT("_"));
 		const FString Folder = C.TestFolder / TEXT("Presets");
 		DTHPoseTest::DeleteIfExists(Folder / Name);
 		UAnimSequence* Sequence = DTHPoseWriter::Create(Folder, Name, C.Skeleton, {Track}, Error);
@@ -353,7 +381,7 @@ bool FDTHPoseP0PresetScreenshots::RunTest(const FString&)
 		};
 		for (const FView& V : Views)
 		{
-			const FString File = Dir / (Pose + TEXT("_") + V.Name + TEXT(".png"));
+			const FString File = Dir / (C.Mesh->GetName() + TEXT("_") + Pose + TEXT("_") + V.Name + TEXT(".png"));
 			if (!Harness.Capture(File, V.Eye, V.Target, V.Fov, V.Size, V.Size, Error)) AddError(Error);
 		}
 	};
@@ -370,15 +398,102 @@ bool FDTHPoseP0PresetScreenshots::RunTest(const FString&)
 		{
 			Track.Add(Ref.GetBoneName(I), DTHRetarget::Inverse(Retarget[I], Wanted.FindChecked(Ref.GetBoneName(I))));
 		}
-		const FString Name = TEXT("A_Preset_") + FPaths::MakeValidFileName(Pose.Label).Replace(TEXT(" "), TEXT("_"));
+		const FString Label = FPaths::MakeValidFileName(Pose.Label).Replace(TEXT(" "), TEXT("_"));
+		const FString Name = TEXT("A_Preset_") + C.Mesh->GetName() + TEXT("_") + Label;
 		const FString Folder = C.TestFolder / TEXT("Presets");
 		DTHPoseTest::DeleteIfExists(Folder / Name);
 		UAnimSequence* Sequence = DTHPoseWriter::Create(Folder, Name, C.Skeleton, {Track}, Error);
 		if (!Sequence) { AddError(Error); return false; }
 		Harness.EvalSequence(Sequence, 0.0, Out);
-		Shoot(Name.RightChop(9));
+		Shoot(Label);
 	}
 	AddInfo(FString::Printf(TEXT("Screens: %s"), *Dir));
+	return true;
+}
+
+// The pipeline is character agnostic: one library (base Genesis 9), one bone map, any DTH Genesis 9 character. Solves
+// each Phase 0 preset on the character and on Second Character, then plays the character's sequence on the second
+// character and compares it with the second character's own solve: whether one written sequence serves every
+// character. Also compares the two sequences' tracks. Pass: the shared sequence within 0.5 deg on every non-twist
+// bone of the second character.
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDTHPoseP0CrossCharacter, "DTH.Pose.P0.CrossCharacter", Flags)
+bool FDTHPoseP0CrossCharacter::RunTest(const FString&)
+{
+	FDTHPoseTestContext C;
+	if (!C.Load(*this)) return false;
+	USkeletalMesh* Second = Cast<USkeletalMesh>(GetDefault<UDTHPoseSettings>()->SecondCharacter.TryLoad());
+	if (!Second || Second->GetSkeleton() != C.Skeleton)
+	{
+		AddError(TEXT("Set Second Character to another DTH Genesis 9 character on the same skeleton."));
+		return false;
+	}
+	FDTHPoseSamples Samples;
+	if (!LoadSamples(*this, Samples)) return false;
+	const DTHPoseSolve::FRig RigA = MakeRig(*this, *C.Mesh, Samples);
+	const DTHPoseSolve::FRig RigB = MakeRig(*this, *Second, Samples);
+	const FReferenceSkeleton& RefA = C.Mesh->GetRefSkeleton();
+	const FReferenceSkeleton& RefB = Second->GetRefSkeleton();
+	const TArray<DTHRetarget::FBone> RetA = DTHRetarget::Gather(*C.Skeleton, *C.Mesh);
+	const TArray<DTHRetarget::FBone> RetB = DTHRetarget::Gather(*C.Skeleton, *Second);
+	FDTHBodyHarness Harness;
+	FString Error;
+	if (!Harness.Init(Second, Error)) { AddError(Error); return false; }
+
+	auto Tracks = [](const DTHPoseSolve::FRig& Rig, const FReferenceSkeleton& Ref, const TArray<DTHRetarget::FBone>& Ret, const FDTHDazState& State)
+	{
+		const TMap<FName, FTransform> Wanted = DTHPoseSolve::Solve(Rig, Ref, State);
+		TMap<FName, FTransform> Track;
+		for (int32 I = 0; I < Ref.GetNum(); ++I) Track.Add(Ref.GetBoneName(I), DTHRetarget::Inverse(Ret[I], Wanted.FindChecked(Ref.GetBoneName(I))));
+		return MakeTuple(Wanted, Track);
+	};
+	TArray<FString> Lines{TEXT("pose\ttrack_rot_diff_deg\ttrack_bone\tshared_vs_own_deg\tshared_bone\tshared_vs_own_cm\tcm_bone")};
+	for (const FDTHDazPose& Pose : Samples.Poses)
+	{
+		if (!Pose.bLoaded) continue;
+		const auto A = Tracks(RigA, RefA, RetA, Pose.State);
+		const auto B = Tracks(RigB, RefB, RetB, Pose.State);
+		double TrackDeg = 0.0; FName TrackBone;
+		for (const TPair<FName, FTransform>& T : A.Get<1>())
+		{
+			const FTransform* Other = B.Get<1>().Find(T.Key);
+			if (!Other || DTHPoseSolve::IsSkipped(T.Key)) continue;
+			const double D = DTHPoseTest::AngleDeg(T.Value.GetRotation(), Other->GetRotation());
+			if (D > TrackDeg) { TrackDeg = D; TrackBone = T.Key; }
+		}
+		// The character's sequence on the second character, against the second character's own solve.
+		const FString Name = TEXT("A_Shared_") + FPaths::MakeValidFileName(Pose.Label).Replace(TEXT(" "), TEXT("_"));
+		const FString Folder = C.TestFolder / TEXT("CrossCharacter");
+		DTHPoseTest::DeleteIfExists(Folder / Name);
+		UAnimSequence* Sequence = DTHPoseWriter::Create(Folder, Name, C.Skeleton, {A.Get<1>()}, Error);
+		if (!Sequence) { AddError(Error); return false; }
+		FDTHBoneReadback Shared, Own;
+		Harness.EvalSequence(Sequence, 0.0, Shared);
+		Harness.EvalPose(B.Get<0>(), {}, Own);
+		// Bones in DTH's Skeleton retarget mode (the pec clavicles [imp apply_skeleton_retargeting_modes]) keep the track's
+		// rotation as authored, unadapted to the character, so they are reported on their own.
+		double Deg = 0.0, Cm = 0.0, FixedDeg = 0.0; FName DegBone, CmBone, FixedBone;
+		for (int32 I = 0; I < Shared.Bones.Num(); ++I)
+		{
+			const FName Bone = Shared.Bones[I];
+			if (DTHPoseSolve::IsSkipped(Bone) || Bone.ToString().Contains(TEXT("twist"))) continue;
+			const double D = DTHPoseTest::AngleDeg(Shared.Component[I].GetRotation(), Own.Component[I].GetRotation());
+			const double M = FVector::Dist(Shared.Component[I].GetTranslation(), Own.Component[I].GetTranslation());
+			if (RetB.IsValidIndex(I) && RetB[I].Mode == EBoneTranslationRetargetingMode::Skeleton)
+			{
+				if (D > FixedDeg) { FixedDeg = D; FixedBone = Bone; }
+				continue;
+			}
+			if (D > Deg) { Deg = D; DegBone = Bone; }
+			if (M > Cm) { Cm = M; CmBone = Bone; }
+		}
+		Lines.Add(FString::Printf(TEXT("%s\t%.4f\t%s\t%.4f\t%s\t%.4f\t%s"), *Pose.Label, TrackDeg, *TrackBone.ToString(), Deg,
+			*DegBone.ToString(), Cm, *CmBone.ToString()));
+		AddInfo(FString::Printf(TEXT("%s: tracks differ by up to %.4f deg (%s); %s's sequence on %s vs its own solve: %.4f deg (%s), %.4f cm (%s); Skeleton-mode bones %.4f deg (%s)."),
+			*Pose.Label, TrackDeg, *TrackBone.ToString(), *C.Mesh->GetName(), *Second->GetName(), Deg, *DegBone.ToString(), Cm, *CmBone.ToString(),
+			FixedDeg, *FixedBone.ToString()));
+		if (Deg > 0.5) AddError(FString::Printf(TEXT("%s: one sequence does not serve both characters (%.3f deg)."), *Pose.Label, Deg));
+	}
+	AddInfo(FString::Printf(TEXT("Report: %s"), *DTHPoseTest::WriteReport(TEXT("cross_character.tsv"), Lines)));
 	return true;
 }
 

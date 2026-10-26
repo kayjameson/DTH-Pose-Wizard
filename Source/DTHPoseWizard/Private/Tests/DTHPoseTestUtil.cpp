@@ -26,12 +26,8 @@ bool FDTHPoseTestContext::Load(FAutomationTestBase& Test)
 		return false;
 	}
 	Skeleton = Mesh->GetSkeleton();
+	// Only the tests that read DTH's ground truth need the export (GroundTruth checks it).
 	PoseAssetsDir = Settings->ExportFolder.Path / TEXT("Pose Assets");
-	if (!IFileManager::Get().DirectoryExists(*PoseAssetsDir))
-	{
-		Test.AddError(FString::Printf(TEXT("Set DTH Export Folder to the character's export folder (no %s)."), *PoseAssetsDir));
-		return false;
-	}
 	TestFolder = Settings->TestFolder.Path;
 	if (!TestFolder.StartsWith(TEXT("/Game/")))
 	{
@@ -43,6 +39,11 @@ bool FDTHPoseTestContext::Load(FAutomationTestBase& Test)
 
 UAnimSequence* FDTHPoseTestContext::GroundTruth(FAutomationTestBase& Test, const FString& Kind, TArray<FString>& OutNames) const
 {
+	if (!IFileManager::Get().DirectoryExists(*PoseAssetsDir))
+	{
+		Test.AddError(FString::Printf(TEXT("Set DTH Export Folder to the character's export folder (no %s)."), *PoseAssetsDir));
+		return nullptr;
+	}
 	TArray<FString> Files;
 	IFileManager::Get().FindFiles(Files, *(PoseAssetsDir / (TEXT("*") + Kind + TEXT("PoseAsset.fbx"))), true, false);
 	if (Files.Num() != 1)

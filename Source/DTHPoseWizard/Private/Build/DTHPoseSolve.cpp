@@ -1,5 +1,6 @@
 #include "Build/DTHPoseSolve.h"
 
+#include "Build/DTHBoneMap.h"
 #include "ReferenceSkeleton.h"
 
 namespace
@@ -373,5 +374,36 @@ namespace DTHPoseSolve
 		}
 		if (OutComponent) *OutComponent = MoveTemp(Comp);
 		return Local;
+	}
+}
+
+namespace DTHPoseSolve
+{
+	FAxes DazToUE()
+	{
+		FAxes A;
+		for (int32 I = 0; I < 3; ++I)
+			for (int32 J = 0; J < 3; ++J) A.M[I][J] = 0;
+		A.M[0][0] = 1; A.M[1][2] = 1; A.M[2][1] = 1;
+		return A;
+	}
+
+	FMapping MapFromTable(const FReferenceSkeleton& Ref)
+	{
+		FMapping Map;
+		const int32 Num = Ref.GetNum();
+		Map.Daz.Init(NAME_None, Num);
+		Map.DistanceCm.Init(-1.0, Num);
+		Map.SecondDaz.Init(NAME_None, Num);
+		Map.SecondCm.Init(-1.0, Num);
+		for (const DTHBoneMap::FEntry& E : DTHBoneMap::Table())
+		{
+			const int32 I = Ref.FindBoneIndex(E.UE);
+			if (I == INDEX_NONE) continue;
+			Map.Daz[I] = E.Daz;
+			// A joint match counts as on the Daz joint; -1 marks a mapping by hierarchy, as MapBones does.
+			Map.DistanceCm[I] = E.bJoint ? 0.0 : -1.0;
+		}
+		return Map;
 	}
 }
