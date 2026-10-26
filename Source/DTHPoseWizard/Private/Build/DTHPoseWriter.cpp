@@ -2,9 +2,11 @@
 
 #include "Animation/AnimData/IAnimationDataController.h"
 #include "Animation/AnimData/IAnimationDataModel.h"
+#include "Animation/AnimBoneCompressionSettings.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/Skeleton.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "DTHPoseLog.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -35,6 +37,12 @@ namespace DTHPoseWriter
 		UPackage* Package = CreatePackage(*PackageName);
 		UAnimSequence* Sequence = NewObject<UAnimSequence>(Package, *Name, RF_Public | RF_Standalone | RF_Transactional);
 		Sequence->SetSkeleton(Skeleton);
+		// Lossless keys (the engine's recorder settings: full-float rotations, raw translations). The default compression
+		// moves a pose by up to 0.03 deg (DTH.Pose.P1.WriteAndPlay); a pose is a frame or a few, so size does not matter.
+		if (UAnimBoneCompressionSettings* Lossless = LoadObject<UAnimBoneCompressionSettings>(nullptr, TEXT("/Engine/Animation/DefaultRecorderBoneCompression.DefaultRecorderBoneCompression")))
+		{
+			Sequence->BoneCompressionSettings = Lossless;
+		}
 
 		const FReferenceSkeleton& Ref = Skeleton->GetReferenceSkeleton();
 		const int32 Keys = Frames.Num();
@@ -63,6 +71,9 @@ namespace DTHPoseWriter
 			Controller.AddBoneCurve(BoneName, false);
 			Controller.SetBoneTrackKeys(BoneName, Positions, Rotations, Scales, false);
 		}
+		// UE 5.8 keeps a sequence's bone rotations as float Euler angles (UAnimSequencerController::SetBoneCurveKeys,
+		// FQuat4f::Euler), which loses up to ~0.03 deg near +-90 deg pitch (DTH's pec and IK bones rest there). Every
+		// sequence in the engine is stored this way; measured in DTH.Pose.P1.WriteAndPlay.
 		Controller.CloseBracket(false);
 		Controller.NotifyPopulated();
 

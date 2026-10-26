@@ -12,6 +12,8 @@ class USkeletalMeshComponent;
 struct FDTHBoneReadback
 {
 	TArray<FName> Bones;
+	/** Parent bone index per bone (INDEX_NONE for the root). */
+	TArray<int32> Parents;
 	TArray<FTransform> Local;
 	TArray<FTransform> Component;
 	TMap<FName, float> Curves;
@@ -39,6 +41,9 @@ public:
 	void EvalSequence(const UAnimSequence* Sequence, double Time, FDTHBoneReadback& Out);
 
 	USkeletalMeshComponent* GetComponent() const { return Component; }
+
+	/** Runs the character's post-process blueprint (the default) or not, to tell its effect from the pose's. */
+	void SetPostProcess(bool bRun);
 
 	/**
 	 * Renders the character as it now stands (DTH's deformer and materials included) from Eye towards Target into a PNG,

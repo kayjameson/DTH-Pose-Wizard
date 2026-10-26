@@ -32,6 +32,11 @@ namespace
 			// (measured on ROM frames 3, 8, 10, 36: the conjugate moves them exactly, the quaternion as given does not;
 			// docs/pose-wizard-research/phase0/p0_daz_results.md).
 			D.Rot = FQuat(-(*Rot)[0]->AsNumber(), -(*Rot)[1]->AsNumber(), -(*Rot)[2]->AsNumber(), (*Rot)[3]->AsNumber()).GetNormalized();
+			const TArray<TSharedPtr<FJsonValue>>* LocalChannels = nullptr;
+			if (Bone->TryGetArrayField(TEXT("local"), LocalChannels))
+			{
+				for (int32 C = 0; C < 6 && C < LocalChannels->Num(); ++C) D.Local[C] = float((*LocalChannels)[C]->AsNumber());
+			}
 		}
 		const TSharedPtr<FJsonObject>* Morphs = nullptr;
 		if (Object->TryGetObjectField(TEXT("morphs"), Morphs))

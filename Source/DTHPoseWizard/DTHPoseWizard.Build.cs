@@ -17,7 +17,13 @@ public class DTHPoseWizard : ModuleRules
 		{
 			"Slate",
 			"SlateCore",
+			"InputCore",
+			"ToolMenus",
 			"UnrealEd",
+			"WorkspaceMenuStructure",
+			"PropertyEditor",
+			"AdvancedPreviewScene",
+			"ApplicationCore",
 			"DeveloperSettings",
 			"Json",
 			"Projects",

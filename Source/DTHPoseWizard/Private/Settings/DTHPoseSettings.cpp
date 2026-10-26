@@ -4,6 +4,7 @@
 
 UDTHPoseSettings::UDTHPoseSettings()
 {
+	LibraryAsset = TEXT("/Game/DTH_Poses/DA_DTH_PoseLibrary");
 	SequenceFolder.Path = TEXT("/Game/DTH_Poses/Sequences");
 	TestFolder.Path = TEXT("/Game/DTH_Poses/_Test");
 }

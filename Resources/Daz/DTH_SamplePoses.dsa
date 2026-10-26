@@ -1,3 +1,4 @@
+
 // DTH Pose Wizard: Daz Studio sampler.
 //
 // Records, in Daz's own evaluation (pose controls, limits, ERC, rotation orders and all), where every bone of a base
@@ -20,6 +21,7 @@
 //   args.romLast   last ROM frame to sample (default: the ROM's last key)
 //   args.geometry  true: also write the base mesh's vertex positions for every sampled state, under <out>/geometry
 //   args.first, args.count  ("sample") which presets of the prepared list to sample
+//   args.skip      preset files not to load (each stopped Daz in an earlier run); listed as not loaded, with the reason
 //   args.figure    load this figure or scene file instead of base Genesis 9 (to measure a character's own joints)
 // The arguments can also be passed as the script's first argument (a script server that has no `args`).
 (function(){
@@ -31,6 +33,8 @@
 	var OUT = A.out || (App.getDocumentsPath() + "/DTH Pose Wizard");
 	var EXTRA_FOLDERS = A.folders || [];
 	var FILES = A.files || null;
+	var SKIP = {};
+	for (var s = 0; A.skip && s < A.skip.length; s++) SKIP[A.skip[s]] = true;
 	var GEOMETRY = !!A.geometry;
 	var FIGURE_FILE = A.figure || "People/Genesis 9/Genesis 9.duf";
 	// DazToHue's Genesis 9 ROM, the body preset the DTH guide loads on the figure; its frames give the JCM poses
@@ -209,6 +213,10 @@
 		var snap = snapshot();
 		for (var i = first; i < last; i++) {
 			var p = found.presets[i];
+			if (SKIP[p.file]) {
+				out.push({pack: p.pack, label: p.label, file: p.file, icon: p.icon, type: p.type, loaded: false, reason: "it stopped Daz Studio when loaded", state: null});
+				continue;
+			}
 			// Which preset is loading, so a preset that stops Daz can be found and listed.
 			writeText(OUT + "/progress.txt", i + "\t" + p.file);
 			var nodes = Scene.getNumNodes();

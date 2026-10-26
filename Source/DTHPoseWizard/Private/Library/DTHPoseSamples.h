@@ -8,6 +8,8 @@ struct FDTHDazBone
 	FName Parent;
 	FVector Pos = FVector::ZeroVector;
 	FQuat Rot = FQuat::Identity;
+	/** The evaluated local channels: X, Y, Z rotate (deg), X, Y, Z translate (cm). */
+	float Local[6] = {0, 0, 0, 0, 0, 0};
 };
 
 /** The figure in one state (rest, a ROM frame or a preset): every bone, and every morph that is not zero. */

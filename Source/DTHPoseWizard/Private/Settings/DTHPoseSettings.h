@@ -20,6 +20,10 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Library", meta = (DisplayName = "Daz Samples File", FilePathFilter = "json"))
 	FFilePath SamplesFile;
 
+	/** The pose library asset the Build Library page writes and the Poses page reads. */
+	UPROPERTY(config, EditAnywhere, Category = "Library", meta = (DisplayName = "Pose Library"))
+	FString LibraryAsset;
+
 	/**
 	 * Testing only: a character sampled in Daz itself (the sampler's "figure" argument), to measure the bone map and axes
 	 * again and check them against the shipped ones (DTH.Pose.P0.DazMapping). The product never needs it.

@@ -62,6 +62,11 @@ bool FDTHBodyHarness::Init(USkeletalMesh* Mesh, FString& OutError)
 	return true;
 }
 
+void FDTHBodyHarness::SetPostProcess(bool bRun)
+{
+	if (Component) Component->SetDisablePostProcessBlueprint(!bRun);
+}
+
 void FDTHBodyHarness::EvalPose(const TMap<FName, FTransform>& Bones, const TMap<FName, float>& Curves, FDTHBoneReadback& Out)
 {
 	Driver->SetPose(Bones, Curves);
@@ -85,11 +90,13 @@ void FDTHBodyHarness::Tick(FDTHBoneReadback& Out)
 	const TArray<FTransform>& Local = Component->GetBoneSpaceTransforms();
 	const int32 Num = FMath::Min3(Ref.GetNum(), Space.Num(), Local.Num());
 	Out.Bones.SetNum(Num);
+	Out.Parents.SetNum(Num);
 	Out.Component.SetNum(Num);
 	Out.Local.SetNum(Num);
 	for (int32 I = 0; I < Num; ++I)
 	{
 		Out.Bones[I] = Ref.GetBoneName(I);
+		Out.Parents[I] = Ref.GetParentIndex(I);
 		Out.Component[I] = Space[I];
 		Out.Local[I] = Local[I];
 	}

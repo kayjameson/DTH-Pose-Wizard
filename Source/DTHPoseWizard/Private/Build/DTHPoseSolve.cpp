@@ -370,7 +370,17 @@ namespace DTHPoseSolve
 		{
 			Comp[I] = FTransform(Rot[I], Pos[I], RefLocal[I].GetScale3D());
 			const int32 Parent = Ref.GetParentIndex(I);
-			Local.Add(Ref.GetBoneName(I), Parent == INDEX_NONE ? RefLocal[I] : Comp[I].GetRelativeTransform(Comp[Parent]));
+			if (Parent == INDEX_NONE || !bMapped[I])
+			{
+				// Bones the pose does not set follow their parent at exactly their reference local transform.
+				Local.Add(Ref.GetBoneName(I), RefLocal[I]);
+				continue;
+			}
+			// Built from the rotations and joint positions directly: FTransform::GetRelativeTransform is not an exact
+			// inverse of the composition with DTH's bind scales (it moved bones by up to 0.03 deg, DTH.Pose.P1.WriteAndPlay).
+			const FQuat LocalRot = (Rot[Parent].Inverse() * Rot[I]).GetNormalized();
+			const FVector LocalPos = Rot[Parent].UnrotateVector(Pos[I] - Pos[Parent]);
+			Local.Add(Ref.GetBoneName(I), FTransform(LocalRot, LocalPos, RefLocal[I].GetScale3D()));
 		}
 		if (OutComponent) *OutComponent = MoveTemp(Comp);
 		return Local;
