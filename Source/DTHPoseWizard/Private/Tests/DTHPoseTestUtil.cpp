@@ -13,6 +13,8 @@
 #include "Misc/Paths.h"
 #include "ObjectTools.h"
 #include "Settings/DTHPoseSettings.h"
+#include "UObject/Package.h"
+#include "UObject/SavePackage.h"
 
 bool FDTHPoseTestContext::Load(FAutomationTestBase& Test)
 {
@@ -64,6 +66,14 @@ UAnimSequence* FDTHPoseTestContext::GroundTruth(FAutomationTestBase& Test, const
 	if (!Sequence)
 	{
 		Sequence = DTHPoseImport::ImportAnimation(PoseAssetsDir / Files[0], Folder, Skeleton, Error);
+		if (Sequence)
+		{
+			// Saved at once: an unsaved import leaves an autosave that stops the next editor start with a dialog.
+			FSavePackageArgs SaveArgs;
+			SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+			UPackage::SavePackage(Sequence->GetPackage(), Sequence,
+				*FPackageName::LongPackageNameToFilename(Sequence->GetPackage()->GetName(), FPackageName::GetAssetPackageExtension()), SaveArgs);
+		}
 	}
 	if (!Sequence)
 	{

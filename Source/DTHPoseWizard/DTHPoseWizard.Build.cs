@@ -23,6 +23,8 @@ public class DTHPoseWizard : ModuleRules
 			"Projects",
 			"AssetTools",
 			"AssetRegistry",
+			"RenderCore",
+			"ImageCore",
 			"InterchangeCore",
 			"InterchangeEngine",
 			"InterchangePipelines",

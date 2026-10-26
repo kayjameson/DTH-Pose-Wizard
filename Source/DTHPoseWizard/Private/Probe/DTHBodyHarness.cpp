@@ -1,9 +1,18 @@
 #include "Probe/DTHBodyHarness.h"
 
 #include "Animation/AnimInstance.h"
+#include "Components/SceneCaptureComponent2D.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "ContentStreaming.h"
 #include "Engine/SkeletalMesh.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "HAL/FileManager.h"
+#include "ImageUtils.h"
+#include "Misc/Paths.h"
 #include "Probe/DTHBonePoseDriverInstance.h"
+#include "RenderingThread.h"
+#include "ShaderCompiler.h"
+#include "TextureResource.h"
 
 FDTHBodyHarness::FDTHBodyHarness()
 	: Scene(FPreviewScene::ConstructionValues())
@@ -15,6 +24,14 @@ FDTHBodyHarness::~FDTHBodyHarness()
 	if (Component)
 	{
 		Scene.RemoveComponent(Component);
+	}
+	if (Camera)
+	{
+		Scene.RemoveComponent(Camera);
+	}
+	if (RenderTarget)
+	{
+		RenderTarget->RemoveFromRoot();
 	}
 }
 
@@ -81,4 +98,64 @@ void FDTHBodyHarness::Tick(FDTHBoneReadback& Out)
 	{
 		Post->AppendAnimationCurveList(EAnimCurveType::AttributeCurve, Out.Curves);
 	}
+}
+
+bool FDTHBodyHarness::Capture(const FString& File, const FVector& Eye, const FVector& Target, float FovDegrees, int32 Width,
+	int32 Height, FString& OutError)
+{
+	if (!Component)
+	{
+		OutError = TEXT("No character.");
+		return false;
+	}
+	if (!RenderTarget)
+	{
+		RenderTarget = NewObject<UTextureRenderTarget2D>(GetTransientPackage());
+		RenderTarget->AddToRoot();
+		Camera = NewObject<USceneCaptureComponent2D>(GetTransientPackage());
+		Camera->bCaptureEveryFrame = false;
+		Camera->bCaptureOnMovement = false;
+		Camera->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+		// One still frame: nothing that needs a history of frames.
+		Camera->ShowFlags.SetTemporalAA(false);
+		Camera->ShowFlags.SetMotionBlur(false);
+		Camera->ShowFlags.SetEyeAdaptation(false);
+		Scene.AddComponent(Camera, FTransform::Identity);
+	}
+	if (RenderTarget->SizeX != Width || RenderTarget->SizeY != Height)
+	{
+		RenderTarget->InitCustomFormat(Width, Height, PF_B8G8R8A8, false);
+		RenderTarget->UpdateResourceImmediate(true);
+	}
+	Camera->TextureTarget = RenderTarget;
+	Camera->FOVAngle = FovDegrees;
+	Camera->SetWorldLocationAndRotation(Eye, (Target - Eye).Rotation());
+
+	// Everything the frame needs: compiled shaders, full-resolution textures, the posed bones on the render thread.
+	Component->bForceMipStreaming = true;
+	Component->MarkRenderStateDirty();
+	if (GShaderCompilingManager) GShaderCompilingManager->FinishAllCompilation();
+	IStreamingManager::Get().StreamAllResources(10.0f);
+	for (int32 Warm = 0; Warm < 3; ++Warm)
+	{
+		Scene.GetWorld()->SendAllEndOfFrameUpdates();
+		Camera->CaptureScene();
+		FlushRenderingCommands();
+	}
+
+	TArray<FColor> Pixels;
+	FTextureRenderTargetResource* Resource = RenderTarget->GameThread_GetRenderTargetResource();
+	if (!Resource || !Resource->ReadPixels(Pixels) || Pixels.Num() != Width * Height)
+	{
+		OutError = TEXT("Could not read the capture's pixels.");
+		return false;
+	}
+	for (FColor& P : Pixels) P.A = 255;
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(File), true);
+	if (!FImageUtils::SaveImageByExtension(*File, FImageView(Pixels.GetData(), Width, Height)))
+	{
+		OutError = FString::Printf(TEXT("Could not write %s."), *File);
+		return false;
+	}
+	return true;
 }

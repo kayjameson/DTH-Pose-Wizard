@@ -20,6 +20,13 @@ public:
 	UPROPERTY(config, EditAnywhere, Category = "Library", meta = (DisplayName = "Daz Samples File", FilePathFilter = "json"))
 	FFilePath SamplesFile;
 
+	/**
+	 * Optional: samples of the character itself in Daz (the sampler's "figure" argument). Its UnrealPose joints map the
+	 * UE bones to Daz bones exactly; without it the library's base Genesis 9 joints are used.
+	 */
+	UPROPERTY(config, EditAnywhere, Category = "Library", meta = (DisplayName = "Character Joints File", FilePathFilter = "json"))
+	FFilePath CharacterJointsFile;
+
 	/** A DTH Genesis 9 character: a skeletal mesh with DTH's post-process blueprint, as the DTH import sets it up. */
 	UPROPERTY(config, EditAnywhere, Category = "Character", meta = (DisplayName = "Character", AllowedClasses = "/Script/Engine.SkeletalMesh"))
 	FSoftObjectPath Character;

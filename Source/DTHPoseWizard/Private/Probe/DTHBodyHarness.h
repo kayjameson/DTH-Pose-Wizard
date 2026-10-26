@@ -40,10 +40,19 @@ public:
 
 	USkeletalMeshComponent* GetComponent() const { return Component; }
 
+	/**
+	 * Renders the character as it now stands (DTH's deformer and materials included) from Eye towards Target into a PNG,
+	 * with the preview scene's own camera: nothing in the level is touched.
+	 */
+	bool Capture(const FString& File, const FVector& Eye, const FVector& Target, float FovDegrees, int32 Width, int32 Height,
+		FString& OutError);
+
 private:
 	void Tick(FDTHBoneReadback& Out);
 
 	FPreviewScene Scene;
 	USkeletalMeshComponent* Component = nullptr;
+	class USceneCaptureComponent2D* Camera = nullptr;
+	class UTextureRenderTarget2D* RenderTarget = nullptr;
 	UDTHBonePoseDriverInstance* Driver = nullptr;
 };

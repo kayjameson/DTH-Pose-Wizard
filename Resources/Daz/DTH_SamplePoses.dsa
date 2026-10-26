@@ -20,14 +20,19 @@
 //   args.romLast   last ROM frame to sample (default: the ROM's last key)
 //   args.geometry  true: also write the base mesh's vertex positions for every sampled state, under <out>/geometry
 //   args.first, args.count  ("sample") which presets of the prepared list to sample
+//   args.figure    load this figure or scene file instead of base Genesis 9 (to measure a character's own joints)
+// The arguments can also be passed as the script's first argument (a script server that has no `args`).
 (function(){
-	var A = (typeof args !== "undefined" && args) ? args : {};
+	// Arguments come as a global `args` (script servers that define it) or as the script's first argument.
+	var passed = getArguments();
+	var A = (typeof args !== "undefined" && args) ? args : (passed.length && typeof passed[0] == "object" ? passed[0] : {});
+	var INTERACTIVE = !passed.length && typeof args === "undefined";
 	var STEP = A.step || "all";
 	var OUT = A.out || (App.getDocumentsPath() + "/DTH Pose Wizard");
 	var EXTRA_FOLDERS = A.folders || [];
 	var FILES = A.files || null;
 	var GEOMETRY = !!A.geometry;
-	var FIGURE_FILE = "People/Genesis 9/Genesis 9.duf";
+	var FIGURE_FILE = A.figure || "People/Genesis 9/Genesis 9.duf";
 	// DazToHue's Genesis 9 ROM, the body preset the DTH guide loads on the figure; its frames give the JCM poses
 	var ROM_DIR = "DazToHue/Poses/Genesis 9/DQS";
 	var ROM_BASE = "G9 DQS JCM FAC - Base.duf";
@@ -204,6 +209,8 @@
 		var snap = snapshot();
 		for (var i = first; i < last; i++) {
 			var p = found.presets[i];
+			// Which preset is loading, so a preset that stops Daz can be found and listed.
+			writeText(OUT + "/progress.txt", i + "\t" + p.file);
 			var nodes = Scene.getNumNodes();
 			Scene.selectAllNodes(false); main.select(true); Scene.setPrimarySelection(main);
 			var ok = App.getContentMgr().openFile(p.file, true), why = ok ? "" : "Daz could not load it";
@@ -291,8 +298,10 @@
 			for (var first = 0; first < total; ) first = samplePresets(first, 25);
 			if (sampleRom()) finish();
 		}
-		if (result.error) MessageBox.critical(result.error, "DTH Pose Wizard", "OK");
-		else MessageBox.information(result.messages.join("\n"), "DTH Pose Wizard", "OK");
+		if (INTERACTIVE) {
+			if (result.error) MessageBox.critical(result.error, "DTH Pose Wizard", "OK");
+			else MessageBox.information(result.messages.join("\n"), "DTH Pose Wizard", "OK");
+		}
 	}
 	return result;
 })();
