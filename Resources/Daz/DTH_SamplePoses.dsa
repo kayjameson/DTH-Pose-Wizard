@@ -106,22 +106,32 @@
 	}
 
 	// User values of every bone channel, morph and figure pose control, to put the figure back after a preset.
+	// Every numeric property of every figure in the scene (Genesis 9 and the figures fitted to it), of all their bones,
+	// and of all their morphs: a preset can set any of them (eye controls, for one, are not under Pose Controls), and one
+	// left set would carry into every preset sampled after it.
 	function snapshot() {
-		var snap = [], fig = mainFigure(), all = [fig].concat(fig.getAllBones());
-		for (var i = 0; i < all.length; i++)
-			for (var c = 0; c < CHANNELS.length; c++) { var ch = channel(all[i], CHANNELS[c]); snap.push([ch, ch.getRawValue()]); }
-		var obj = fig.getObject();
-		for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
-			var mod = obj.getModifier(m);
-			if (mod && mod.inherits("DzMorph")) snap.push([mod.getValueControl(), mod.getValueControl().getRawValue()]);
-		}
-		for (var n = 0; n < fig.getNumProperties(); n++) {
-			var np = fig.getProperty(n);
-			if (np && np.inherits("DzFloatProperty") && np.getPath().indexOf("/Pose Controls") == 0) snap.push([np, np.getRawValue()]);
+		var snap = [];
+		function add(p) { if (p && p.inherits("DzNumericProperty")) snap.push([p, p.getRawValue()]); }
+		for (var s = 0; s < Scene.getNumSkeletons(); s++) {
+			var fig = Scene.getSkeleton(s), nodes = [fig].concat(fig.getAllBones());
+			for (var i = 0; i < nodes.length; i++)
+				for (var n = 0; n < nodes[i].getNumProperties(); n++) add(nodes[i].getProperty(n));
+			var obj = fig.getObject();
+			for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
+				var mod = obj.getModifier(m);
+				if (mod && mod.inherits("DzMorph")) add(mod.getValueControl());
+			}
 		}
 		return snap;
 	}
 	function restore(snap) { for (var i = 0; i < snap.length; i++) snap[i][0].setValue(snap[i][1]); }
+	// Properties a restore did not put back (a property driven by another one cannot be set): "" when all came back.
+	function unrestored(snap) {
+		var out = [];
+		for (var i = 0; i < snap.length && out.length < 5; i++)
+			if (Math.abs(snap[i][0].getRawValue() - snap[i][1]) > 1e-4) out.push(snap[i][0].getPath() + "/" + snap[i][0].getName());
+		return out.join(", ");
+	}
 
 	function presetType(file) {
 		var text = readText(file) || "";
@@ -230,7 +240,9 @@
 			var s = ok ? sample() : null;
 			if (s) s.geometry = writeGeometry("preset_" + i + "_" + p.label);
 			restore(snap);
-			out.push({pack: p.pack, label: p.label, file: p.file, icon: p.icon, type: p.type, loaded: ok, reason: why, state: s});
+			var left = unrestored(snap);
+			if (left) note("After " + p.label + " these did not return to rest: " + left);
+			out.push({pack: p.pack, label: p.label, file: p.file, icon: p.icon, type: p.type, loaded: ok, reason: why, state: s, notRestored: left});
 		}
 		writeText(OUT + "/samples_" + first + ".json", JSON.stringify(out));
 		note("Sampled presets " + first + " to " + (last - 1) + " of " + found.presets.length + ".");

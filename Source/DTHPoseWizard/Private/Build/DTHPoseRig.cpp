@@ -86,8 +86,12 @@ namespace DTHPoseRig
 
 	FString AssetName(const FString& Label)
 	{
-		FString Out = FPaths::MakeValidFileName(Label.Replace(TEXT(" "), TEXT("_")), TCHAR('_'));
-		Out.ReplaceInline(TEXT("."), TEXT("_"));
-		return Out.Left(100);
+		// Letters, digits and underscores only: content paths reject . , & ! ~ @ # and more (labels like "L.H. Sword Pose"
+		// or "!Reset Eyes" occur).
+		FString Out;
+		for (const TCHAR Ch : Label) Out.AppendChar(FChar::IsAlnum(Ch) || Ch == TEXT('_') || Ch == TEXT('-') ? Ch : TEXT('_'));
+		while (Out.ReplaceInline(TEXT("__"), TEXT("_")) > 0) {}
+		Out.TrimCharInline(TEXT('_'), nullptr);
+		return Out.IsEmpty() ? FString(TEXT("Pose")) : Out.Left(100);
 	}
 }

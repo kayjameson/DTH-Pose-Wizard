@@ -71,10 +71,14 @@ A sequence is written for the character it is meant for: write one per character
 shared, but Unreal's retargeting doesn't carry a sequence written for one character exactly onto another with
 different proportions.
 
-## Sequencer
+## Sequencer and expressions
 
 Add the sequence to the character's Animation track. A face sequence on a second section (or a MetaHuman face
 performance) layers over it: pose sequences carry bone tracks only, no curves.
+
+You can also key an expression straight into a pose sequence: pick the pose sequence in the DTH Expression Wizard's
+Key bar and key the expression on the same frame. The pose sets the body, the expression sets the face, and neither
+touches the other (`DTH.Pose.P1.PoseWithExpression`: body within 0.00001°, face identical to the expression alone).
 
 ## Python
 
