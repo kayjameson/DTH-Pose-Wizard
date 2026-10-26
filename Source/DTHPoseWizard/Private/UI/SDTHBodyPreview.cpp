@@ -108,8 +108,14 @@ bool SDTHBodyPreview::SetView(const FString& InView)
 	}
 	// DTH characters face +Y on the UE5 Mannequin skeleton; +X is the character's left (DTH.Pose.P0.DazMapping).
 	Component->UpdateBounds();
+	// The distance that fits a sphere of this radius in the view, by the narrower of its two fields of view.
+	const FIntPoint Size = Client->Viewport ? Client->Viewport->GetSizeXY() : FIntPoint(1, 1);
+	const double Aspect = Size.Y > 0 ? double(Size.X) / Size.Y : 1.0;
+	const double HalfH = FMath::DegreesToRadians(Client->ViewFOV * 0.5);
+	const double HalfV = FMath::Atan(FMath::Tan(HalfH) / FMath::Max(Aspect, 0.01));
+	auto Fit = [&](double Radius) { return Radius / FMath::Sin(FMath::Min(HalfH, HalfV)); };
 	const FVector Center = Component->Bounds.Origin;
-	const double Distance = Component->Bounds.SphereRadius * 3.9;
+	const double Distance = Fit(Component->Bounds.SphereRadius * 0.75);
 	const double Q = FMath::DegreesToRadians(45.0);
 	FVector Target = Center, Eye;
 	if (InView.Equals(TEXT("body"), ESearchCase::IgnoreCase)) Eye = Center + FVector(0.0, Distance, 0.0);
@@ -125,13 +131,14 @@ bool SDTHBodyPreview::SetView(const FString& InView)
 		for (int32 B = Head; B != INDEX_NONE; B = Ref.GetParentIndex(B)) Rest = Rest * Ref.GetRefBonePose()[B];
 		const FQuat Turn = Component->GetBoneQuaternion(TEXT("head"), EBoneSpaces::ComponentSpace) * Rest.GetRotation().Inverse();
 		Target = Component->GetSocketLocation(TEXT("head")) + Turn.RotateVector(FVector(0.0, 2.0, 5.0));
-		Eye = Target + Turn.RotateVector(FVector(0.0, 60.0, 0.0));
+		Eye = Target + Turn.RotateVector(FVector(0.0, Fit(14.0), 0.0));
 	}
 	else if (InView.Equals(TEXT("hands"), ESearchCase::IgnoreCase))
 	{
-		Target = (Component->GetSocketLocation(TEXT("hand_l")) + Component->GetSocketLocation(TEXT("hand_r"))) * 0.5;
-		const double Apart = FVector::Dist(Component->GetSocketLocation(TEXT("hand_l")), Component->GetSocketLocation(TEXT("hand_r")));
-		Eye = Target + FVector(0.0, FMath::Max(60.0, Apart * 2.2), 15.0);
+		// Both hands, fingertips included (about 20 cm past the wrist), seen from the front and a little above.
+		const FVector L = Component->GetSocketLocation(TEXT("hand_l")), R = Component->GetSocketLocation(TEXT("hand_r"));
+		Target = (L + R) * 0.5;
+		Eye = Target + FVector(0.0, 1.0, 0.25).GetSafeNormal() * Fit(FVector::Dist(L, R) * 0.5 + 20.0);
 	}
 	else return false;
 	View = InView;
