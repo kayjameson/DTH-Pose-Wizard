@@ -154,9 +154,10 @@ bool FDTHPoseP0BindPose::RunTest(const FString&)
 }
 
 // Plays every JCM pose-asset frame through the character's post-process blueprint. Per frame: which bones the pose
-// rotates (against the rest frame), whether the matching JCM pose curve fires (the pose drivers [M u1_results]),
-// and which bones the post-process blueprint itself changes (twist solve [M u1_rig_graph ~1053-1066], and any bone
-// delta the JCM pose asset might add: plan risk 6). Pass: each pose's own curve reaches 0.5.
+// rotates (against the rest frame), whether the post-process blueprint outputs the JCM curves the pose asset carries for
+// that frame (its pose drivers [M u1_results] reading the bones alone), and which bones the post-process blueprint
+// itself changes (twist solve [M u1_rig_graph ~1053-1066], and any bone delta the JCM pose asset might add: plan
+// risk 6). Pass: every JCM curve within 0.05 of the pose asset's value.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDTHPoseP0JcmFrames, "DTH.Pose.P0.JcmFrames", Flags)
 bool FDTHPoseP0JcmFrames::RunTest(const FString&)
 {
@@ -169,13 +170,18 @@ bool FDTHPoseP0JcmFrames::RunTest(const FString&)
 	FString Error;
 	if (!Harness.Init(C.Mesh, Error)) { AddError(Error); return false; }
 
-	const int32 Keys = Jcm->GetDataModel()->GetNumberOfKeys();
+	const IAnimationDataModel* Model = Jcm->GetDataModel();
+	const TArray<FFloatCurve>& SequenceCurves = Model->GetFloatCurves();
+	TSet<FName> SequenceCurveNames;
+	for (const FFloatCurve& Curve : SequenceCurves) SequenceCurveNames.Add(Curve.GetName());
+	const int32 Keys = Model->GetNumberOfKeys();
 	const TMap<FName, FTransform> RestPose = DTHPoseTest::TrackPose(*Jcm, 0);
 	FDTHBoneReadback Rest;
 	Harness.EvalPose(RestPose, {}, Rest);
 
-	TArray<FString> Lines{TEXT("frame\tpose\trotated_bones\tpose_curve\tpose_curve_at_rest\tother_curves_over_0.5\tpost_changed_bones")};
+	TArray<FString> Lines{TEXT("frame\tpose\trotated_bones\tsequence_curves_on\tmax_curve_error\tworst_curve\tother_curves_changed\tpost_changed_bones")};
 	int32 Failed = 0;
+	double WorstError = 0.0;
 	for (int32 K = 1; K < Keys; ++K)
 	{
 		const FString PoseName = Names.IsValidIndex(K) ? Names[K] : FString::Printf(TEXT("frame%d"), K);
@@ -192,16 +198,38 @@ bool FDTHPoseP0JcmFrames::RunTest(const FString&)
 		}
 		FDTHBoneReadback Out;
 		Harness.EvalPose(Pose, {}, Out);
-		const float Curve = Out.Curves.FindRef(FName(*PoseName));
-		const float CurveAtRest = Rest.Curves.FindRef(FName(*PoseName));
+
+		// The JCM curves the pose asset carries at this frame (what DTH authored for this pose) against what the
+		// post-process blueprint outputs when the bones alone are played.
+		const float Time = float(Model->GetFrameRate().AsSeconds(FFrameNumber(K)));
+		FString On;
+		double MaxError = 0.0;
+		FName Worst;
+		for (const FFloatCurve& Curve : SequenceCurves)
+		{
+			const float Expected = Curve.FloatCurve.Eval(Time);
+			const float Got = Out.Curves.FindRef(Curve.GetName());
+			if (FMath::Abs(Expected) > 0.01f)
+			{
+				On += FString::Printf(TEXT("%s:%.2f->%.2f "), *Curve.GetName().ToString(), Expected, Got);
+			}
+			if (FMath::Abs(Got - Expected) > MaxError)
+			{
+				MaxError = FMath::Abs(Got - Expected);
+				Worst = Curve.GetName();
+			}
+		}
+		WorstError = FMath::Max(WorstError, MaxError);
 		FString Others;
+		int32 OtherCount = 0;
 		for (const TPair<FName, float>& V : Out.Curves)
 		{
-			if (V.Value > 0.5f && V.Key != FName(*PoseName) && V.Key.ToString().StartsWith(TEXT("pasJcm")))
+			if (!SequenceCurveNames.Contains(V.Key) && FMath::Abs(V.Value - Rest.Curves.FindRef(V.Key)) > 0.01f && ++OtherCount <= 8)
 			{
 				Others += FString::Printf(TEXT("%s:%.2f "), *V.Key.ToString(), V.Value);
 			}
 		}
+		if (OtherCount > 8) Others += FString::Printf(TEXT("(+%d more)"), OtherCount - 8);
 		// Bones the post-process blueprint moved away from what was played.
 		FString Changed;
 		for (int32 I = 0; I < Out.Bones.Num(); ++I)
@@ -215,19 +243,19 @@ bool FDTHPoseP0JcmFrames::RunTest(const FString&)
 				Changed += FString::Printf(TEXT("%s:%.2fdeg/%.3fcm "), *Out.Bones[I].ToString(), Deg, Cm);
 			}
 		}
-		Lines.Add(FString::Printf(TEXT("%d\t%s\t%s\t%.4f\t%.4f\t%s\t%s"), K, *PoseName, *Rotated.TrimEnd(), Curve, CurveAtRest,
-			*Others.TrimEnd(), *Changed.TrimEnd()));
-		if (Curve < 0.5f)
+		Lines.Add(FString::Printf(TEXT("%d\t%s\t%s\t%s\t%.4f\t%s\t%s\t%s"), K, *PoseName, *Rotated.TrimEnd(), *On.TrimEnd(), MaxError,
+			*Worst.ToString(), *Others.TrimEnd(), *Changed.TrimEnd()));
+		if (MaxError > 0.05)
 		{
 			++Failed;
-			AddWarning(FString::Printf(TEXT("%s: its JCM pose curve is %.3f when the pose is played."), *PoseName, Curve));
+			AddWarning(FString::Printf(TEXT("%s: JCM curve %s is off by %.3f from the pose asset's value."), *PoseName, *Worst.ToString(), MaxError));
 		}
 	}
-	AddInfo(FString::Printf(TEXT("%d of %d JCM poses fire their own curve. Report: %s"), Keys - 1 - Failed, Keys - 1,
-		*DTHPoseTest::WriteReport(TEXT("jcm_frames.tsv"), Lines)));
+	AddInfo(FString::Printf(TEXT("%d sequence curves; %d of %d JCM poses reproduce the pose asset's curves within 0.05 (worst %.4f). Report: %s"),
+		SequenceCurves.Num(), Keys - 1 - Failed, Keys - 1, WorstError, *DTHPoseTest::WriteReport(TEXT("jcm_frames.tsv"), Lines)));
 	if (Failed > 0)
 	{
-		AddError(FString::Printf(TEXT("%d JCM poses did not fire their curve."), Failed));
+		AddError(FString::Printf(TEXT("%d JCM poses do not reproduce the pose asset's curves."), Failed));
 	}
 	return true;
 }
