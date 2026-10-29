@@ -4,6 +4,7 @@
 #include "Build/DTHPoseRig.h"
 #include "DTHPoseWizardModule.h"
 #include "Engine/SkeletalMesh.h"
+#include "LevelSequence.h"
 #include "Framework/Docking/TabManager.h"
 #include "Library/DTHPoseLibrary.h"
 #include "Library/DTHPoseLibraryBuild.h"
@@ -130,5 +131,34 @@ TArray<FString> UDTHPoseScripting::WriteSequence(const FString& MeshPath, const 
 	UAnimSequence* Sequence = DTHPoseRig::Write(*Mesh, *Library, Frames, GetDefault<UDTHPoseSettings>()->SequenceFolder.Path, SequenceName, Error);
 	Out.Insert(Sequence ? FString::Printf(TEXT("Saved %s for %s: %d frames."), *Sequence->GetPackage()->GetName(), *Mesh->GetName(), Frames.Num())
 		: TEXT("ERROR: ") + Error, 0);
+	return Out;
+}
+
+TArray<FString> UDTHPoseScripting::KeyOntoControlRig(const FString& SequencePath, const FString& BindingName, const FString& MeshPath,
+	const TArray<FString>& Labels, const FString& BaseLabel, int32 Frame, bool bStepped)
+{
+	TArray<FString> Out;
+	const UDTHPoseLibrary* Library = LoadLibrary();
+	USkeletalMesh* Mesh = LoadObject<USkeletalMesh>(nullptr, *MeshPath);
+	ULevelSequence* Sequence = LoadObject<ULevelSequence>(nullptr, *SequencePath);
+	if (!Library || !Mesh || !Sequence || Labels.IsEmpty())
+	{
+		Out.Add(!Library ? TEXT("ERROR: No pose library (build it first).") : !Mesh ? FString::Printf(TEXT("ERROR: No skeletal mesh at %s."), *MeshPath)
+			: !Sequence ? FString::Printf(TEXT("ERROR: No level sequence at %s."), *SequencePath) : TEXT("ERROR: No poses given."));
+		return Out;
+	}
+	const int32 Base = BaseLabel.IsEmpty() ? INDEX_NONE : Library->FindPose(BaseLabel);
+	TArray<FDTHDazState> States;
+	for (const FString& Label : Labels)
+	{
+		const int32 Pose = Library->FindPose(Label);
+		if (Pose == INDEX_NONE || !Library->Poses[Pose].bLoaded)
+		{
+			Out.Add(FString::Printf(TEXT("ERROR: No pose \"%s\" in the library."), *Label));
+			return Out;
+		}
+		States.Add(DTHPoseRig::Resolve(*Library, Pose, Base));
+	}
+	DTHPoseRig::KeyOntoRig(*Mesh, *Library, States, Sequence, BindingName, Frame, bStepped, Out);
 	return Out;
 }

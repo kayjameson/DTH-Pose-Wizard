@@ -4,6 +4,7 @@
 #include "Build/DTHPoseSolve.h"
 
 class UAnimSequence;
+class ULevelSequence;
 class UDTHPoseLibrary;
 class USkeletalMesh;
 
@@ -32,6 +33,14 @@ namespace DTHPoseRig
 	 */
 	UAnimSequence* Write(const USkeletalMesh& Mesh, const UDTHPoseLibrary& Library, TConstArrayView<FDTHDazState> Frames,
 		const FString& Folder, const FString& Name, FString& OutError);
+
+	/**
+	 * Keys each state onto the character's control rig track in Sequence (the binding named BindingName; the character's
+	 * default rig is added if it has none), one per frame from Frame on. Only the body controls are keyed, so face keys
+	 * from the Expression Wizard on the same frames stay. Report lines ("ERROR:", "WARNING:") go to OutLines.
+	 */
+	bool KeyOntoRig(USkeletalMesh& Mesh, const UDTHPoseLibrary& Library, TConstArrayView<FDTHDazState> States, ULevelSequence* Sequence,
+		const FString& BindingName, int32 Frame, bool bStepped, TArray<FString>& OutLines);
 
 	/** A content-safe asset name from a pose label. */
 	FString AssetName(const FString& Label);

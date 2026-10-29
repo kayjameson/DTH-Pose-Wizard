@@ -7,6 +7,7 @@
 class IDetailsView;
 class ITableRow;
 class SDTHBodyPreview;
+class SDTHRigKeyTarget;
 class STableViewBase;
 class UAnimSequence;
 class UDTHPoseLibrary;
@@ -46,6 +47,7 @@ private:
 	TSharedRef<SWidget> MakePosesPage();
 	TSharedRef<SWidget> MakeViewButtons();
 	TSharedRef<SWidget> MakeWriteBar();
+	TSharedRef<SWidget> MakeRigBar();
 	TSharedRef<SWidget> MakeActionBar();
 	TSharedRef<ITableRow> MakeMessageRow(TSharedPtr<FMessage> Message, const TSharedRef<STableViewBase>& Owner);
 	TSharedRef<ITableRow> MakePoseRow(TSharedPtr<int32> Pose, const TSharedRef<STableViewBase>& Owner);
@@ -54,6 +56,8 @@ private:
 	FReply OnBuild();
 	FReply OnWritePose();
 	FReply OnWriteSheet();
+	/** Keys the previewed pose (or the sheet, one per frame) onto the chosen control rig track. */
+	FReply OnKeyRig(bool bSheet);
 	void LoadLibrary();
 	void RefreshPoseList();
 	void ShowPose(int32 Pose);
@@ -86,6 +90,7 @@ private:
 	TSharedPtr<SListView<TSharedPtr<int32>>> SheetList;
 
 	TSharedPtr<SDTHBodyPreview> Preview;
+	TSharedPtr<SDTHRigKeyTarget> RigTarget;
 	FString SequenceName;
 
 	static TWeakPtr<SDTHPoseWizard> Instance;

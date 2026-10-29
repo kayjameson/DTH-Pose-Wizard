@@ -15,6 +15,7 @@
 #include "Modules/ModuleManager.h"
 #include "PropertyCustomizationHelpers.h"
 #include "PropertyEditorModule.h"
+#include "SDTHRigKeyTarget.h"
 #include "Settings/DTHPoseSettings.h"
 #include "Styling/AppStyle.h"
 #include "Styling/StyleColors.h"
@@ -413,6 +414,10 @@ TSharedRef<SWidget> SDTHPoseWizard::MakePosesPage()
 		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 8.f, 0.f, 0.f)
 		[
 			MakeWriteBar()
+		]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0.f, 8.f, 0.f, 0.f)
+		[
+			MakeRigBar()
 		];
 }
 
@@ -480,6 +485,63 @@ TSharedRef<SWidget> SDTHPoseWizard::MakeWriteBar()
 			.ColorAndOpacity(FSlateColor::UseSubduedForeground())
 			.Text_Lambda([]() { return FText::FromString(TEXT("in ") + GetDefault<UDTHPoseSettings>()->SequenceFolder.Path); })
 		]);
+}
+
+TSharedRef<SWidget> SDTHPoseWizard::MakeRigBar()
+{
+	auto Enabled = [this](bool bSheet)
+	{
+		return Library.IsValid() && Preview.IsValid() && Preview->GetCharacter() && (bSheet ? !SheetRows.IsEmpty() : Library->Poses.IsValidIndex(Selected));
+	};
+	return MakeSection(LOCTEXT("RigSection", "Key onto a Control Rig (body controls only; face keys from the Expression Wizard stay)"),
+		SNew(SHorizontalBox)
+		+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+		[
+			SAssignNew(RigTarget, SDTHRigKeyTarget)
+		]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(8.f, 0.f, 0.f, 0.f)
+		[
+			SNew(SButton)
+			.Text(LOCTEXT("KeyPose", "Key Pose"))
+			.ToolTipText(LOCTEXT("KeyPoseTip", "Key the previewed pose at the frame on the character's control rig track, then move to the next frame"))
+			.IsEnabled_Lambda([Enabled]() { return Enabled(false); })
+			.OnClicked_Lambda([this]() { return OnKeyRig(false); })
+		]
+		+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(4.f, 0.f, 0.f, 0.f)
+		[
+			SNew(SButton)
+			.Text(LOCTEXT("KeySheet", "Key Sheet"))
+			.ToolTipText(LOCTEXT("KeySheetTip", "Key the pose sheet from the frame on, one pose per frame"))
+			.IsEnabled_Lambda([Enabled]() { return Enabled(true); })
+			.OnClicked_Lambda([this]() { return OnKeyRig(true); })
+		]);
+}
+
+FReply SDTHPoseWizard::OnKeyRig(bool bSheet)
+{
+	const UDTHPoseLibrary* Lib = Library.Get();
+	USkeletalMesh* Mesh = Preview.IsValid() ? Preview->GetCharacter() : nullptr;
+	if (!Lib || !Mesh || !RigTarget.IsValid())
+	{
+		return FReply::Handled();
+	}
+	TArray<FDTHDazState> States;
+	if (bSheet)
+	{
+		for (const TSharedPtr<int32>& Row : SheetRows) States.Add(DTHPoseRig::Resolve(*Lib, *Row, Base));
+	}
+	else if (Lib->Poses.IsValidIndex(Selected))
+	{
+		States.Add(DTHPoseRig::Resolve(*Lib, Selected, Base));
+	}
+	TArray<FString> Lines;
+	const int32 Frame = RigTarget->GetFrame();
+	if (DTHPoseRig::KeyOntoRig(*Mesh, *Lib, States, RigTarget->GetSequence(), RigTarget->GetBinding(), Frame, RigTarget->IsStepped(), Lines))
+	{
+		RigTarget->SetFrame(Frame + States.Num());
+	}
+	Status = FString::Join(Lines, TEXT("  "));
+	return FReply::Handled();
 }
 
 void SDTHPoseWizard::RefreshPoseList()

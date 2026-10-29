@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "0.1.0",
+	"Version": 2,
+	"VersionName": "0.2.0",
 	"FriendlyName": "DTH Pose Wizard",
 	"Description": "Daz Studio body poses for DazToHue Genesis 9 characters: measures each pose in Daz and recreates it 1:1 as a plain bone-track animation sequence on the UE5 Mannequin skeleton.",
 	"Category": "Animation",
@@ -17,15 +17,33 @@
 	"Installed": false,
 	"Modules": [
 		{
+			"Name": "DTHRigKeying",
+			"Type": "Editor",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		},
+		{
 			"Name": "DTHPoseWizard",
 			"Type": "Editor",
 			"LoadingPhase": "Default",
-			"PlatformAllowList": [ "Win64" ]
+			"PlatformAllowList": [
+				"Win64"
+			]
 		}
 	],
 	"Plugins": [
 		{
 			"Name": "Interchange",
+			"Enabled": true
+		},
+		{
+			"Name": "ControlRig",
+			"Enabled": true
+		},
+		{
+			"Name": "LevelSequenceEditor",
 			"Enabled": true
 		}
 	]

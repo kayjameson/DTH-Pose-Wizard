@@ -80,6 +80,37 @@ You can also key an expression straight into a pose sequence: pick the pose sequ
 Key bar and key the expression on the same frame. The pose sets the body, the expression sets the face, and neither
 touches the other (`DTH.Pose.P1.PoseWithExpression`: body within 0.00001°, face identical to the expression alone).
 
+## Key onto a Control Rig
+
+Both wizards key the same control rig track on the same frames without touching each other's channels: the Pose
+Wizard keys the body controls (`Body/` on DTH's modular rig), the Expression Wizard the face board (`Face/`). So one
+pose can hold for four frames with a different expression on each, or the other way round.
+
+Pick the **Level Sequence**, the **character** (its binding) and the **Frame** in the "Key onto a Control Rig" bar. The
+choice is shared by both wizards, and the frame moves on by itself after each key. **Stepped** (on by default) holds
+each key until the next one; turn it off to blend between keys. If the character has no control rig track yet, its
+default animating rig (`MCR_<character>`) is added.
+
+What you see in the wizard is what the track plays, exactly:
+- The values are found with the rig's Forwards Solve, never its Backwards Solve (DTH's backwards solve, which
+  Sequencer's own **Bake to Control Rig** uses, bakes with the IK legs and spine on and drops the head's own turn and
+  the pelvis; see the bake-fixed copy of the rig for a bake that works).
+- What the rig cannot show goes on a **layered FK Control Rig** track that the wizards add to the same binding, which
+  Sequencer applies after the rig: bones no body control of DTH's rig drives (spine_05, the metatarsals, the pec
+  clavicles, the twist bones, the eyes) and face curves the board cannot write (six lip curves have no control, and
+  some expressions need both ends of one slider at once, such as nose wrinkle with nostril depress). Poses own the
+  layer's bones, expressions its curves. The twist bones matter: DTH's post-process blends each one's own twist with
+  its limb's, so the pose's twist shows on the character.
+- Measured on Milly (2026-10-28): every body bone within 0.02 deg of the Pose Wizard's preview, every one of the 154
+  expression curves within 0.005 of the Expression Wizard's mix, on every frame, with poses and expressions keyed
+  together and alone; and on the character as shown (after DTH's post-process) the twist bones of a keyed pose the
+  same as the pose played as an animation (they were up to 69 deg off before the layer carried them).
+- The wizards key the bake-fixed copy of the rig the same way; it has controls of its own for spine_05, the
+  metatarsals, the pec clavicles and the twist bones.
+
+**Key Pose** keys the previewed pose at the frame; **Key Sheet** keys the pose sheet from the frame on, one pose per
+frame. The report lists the bones the rig itself leaves off, which the layer corrects.
+
 ## Python
 
 `unreal.DTHPoseScripting`. Every function returns text lines; failures start with `ERROR:`.
@@ -93,6 +124,7 @@ touches the other (`DTH.Pose.P1.PoseWithExpression`: body within 0.00001°, face
 | `select_pose(label, base_label)` | previews a pose (a partial one over `base_label`, `""` for the rest pose) |
 | `capture_preview(file, view)` | saves the preview (`body`, `side`, `threequarter`, `face`, `hands`) as PNG |
 | `write_sequence(mesh_path, labels, base_label, name)` | writes the poses as a sequence for the character |
+| `key_onto_control_rig(sequence_path, binding_name, mesh_path, labels, base_label, frame, stepped)` | keys the poses onto the character's control rig track, one per frame from `frame` on |
 
 ## Tests
 

@@ -43,4 +43,13 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DTH Pose Wizard")
 	static TArray<FString> WriteSequence(const FString& MeshPath, const TArray<FString>& Labels, const FString& BaseLabel, const FString& Name);
+
+	/**
+	 * Keys the poses (labels, one per frame from Frame on) onto the control rig track of the binding BindingName in the
+	 * level sequence at SequencePath, for the character MeshPath (its default rig is added if the binding has none).
+	 * Only body controls are keyed. bStepped holds each key until the next.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DTH Pose Wizard")
+	static TArray<FString> KeyOntoControlRig(const FString& SequencePath, const FString& BindingName, const FString& MeshPath,
+		const TArray<FString>& Labels, const FString& BaseLabel, int32 Frame, bool bStepped = true);
 };
