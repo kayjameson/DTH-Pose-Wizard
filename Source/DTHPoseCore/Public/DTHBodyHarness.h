@@ -45,6 +45,9 @@ public:
 	/** Runs the character's post-process blueprint (the default) or not, to tell its effect from the pose's. */
 	void SetPostProcess(bool bRun);
 
+	/** Points the preview scene's light (the direction it shines along), e.g. from the camera's side so the face is lit. */
+	void SetLightDirection(const FRotator& Direction) { Scene.SetLightDirection(Direction); }
+
 	/**
 	 * Renders the character as it now stands (DTH's deformer and materials included) from Eye towards Target into a PNG,
 	 * with the preview scene's own camera: nothing in the level is touched.
