@@ -71,31 +71,38 @@ bool FDTHPoseP1LibraryBuild::RunTest(const FString&)
 	if (!C.Load(*this)) return false;
 	UDTHPoseLibrary* Library = BuildTestLibrary(*this, C);
 	if (!Library) return false;
-	TArray<uint32> First;
-	for (const FDTHPose& P : Library->Poses)
+	auto Hash = [](const UDTHPoseLibrary& Lib, int32 I)
 	{
-		uint32 Hash = GetTypeHash(P.Label);
-		for (const FQuat& Q : P.Rotations) Hash = HashCombine(Hash, GetTypeHash(Q.ToString()));
-		First.Add(Hash);
-		if (P.bLoaded && (P.Rotations.Num() != Library->Bones.Num() || P.Positions.Num() != Library->Bones.Num()))
+		uint32 H = GetTypeHash(Lib.Poses[I].Label);
+		FDTHPoseData D;
+		if (Lib.Data(I, D)) for (const FQuat& Q : D.Rotations) H = HashCombine(H, GetTypeHash(Q.ToString()));
+		return H;
+	};
+	TArray<uint32> First;
+	for (int32 I = 0; I < Library->Poses.Num(); ++I)
+	{
+		First.Add(Hash(*Library, I));
+		FDTHPoseData D;
+		if (Library->Poses[I].bLoaded && (!Library->Data(I, D) || D.Rotations.Num() != Library->Bones.Num() || D.Positions.Num() != Library->Bones.Num()))
 		{
-			AddError(FString::Printf(TEXT("%s has %d rotations for %d bones."), *P.Label, P.Rotations.Num(), Library->Bones.Num()));
+			AddError(FString::Printf(TEXT("%s has %d rotations for %d bones."), *Library->Poses[I].Label, D.Rotations.Num(), Library->Bones.Num()));
 		}
 	}
 	Library = BuildTestLibrary(*this, C);
 	if (!Library) return false;
 	for (int32 I = 0; I < Library->Poses.Num(); ++I)
 	{
-		uint32 Hash = GetTypeHash(Library->Poses[I].Label);
-		for (const FQuat& Q : Library->Poses[I].Rotations) Hash = HashCombine(Hash, GetTypeHash(Q.ToString()));
-		if (!First.IsValidIndex(I) || First[I] != Hash) AddError(FString::Printf(TEXT("Rebuilding changed %s."), *Library->Poses[I].Label));
+		if (!First.IsValidIndex(I) || First[I] != Hash(*Library, I)) AddError(FString::Printf(TEXT("Rebuilding changed %s."), *Library->Poses[I].Label));
 	}
 	int32 Partial = 0;
-	for (const FDTHPose& P : Library->Poses)
+	for (int32 I = 0; I < Library->Poses.Num(); ++I)
 	{
+		const FDTHPose& P = Library->Poses[I];
+		FDTHPoseData D;
+		Library->Data(I, D);
 		Partial += P.bPartial ? 1 : 0;
 		AddInfo(FString::Printf(TEXT("%s: %s, moves %d bones, %d shapes not reproduced%s"), *P.Label, P.bPartial ? TEXT("partial") : TEXT("full"),
-			P.Moved.Num(), P.Missing.Num(), P.Missing.IsEmpty() ? TEXT("") : *(TEXT(" (") + FString::Join(P.Missing, TEXT("; ")) + TEXT(")"))));
+			D.Moved.Num(), P.Missing.Num(), P.Missing.IsEmpty() ? TEXT("") : *(TEXT(" (") + FString::Join(P.Missing, TEXT("; ")) + TEXT(")"))));
 	}
 	AddInfo(FString::Printf(TEXT("%d bones, %d poses, %d partial."), Library->Bones.Num(), Library->Poses.Num(), Partial));
 	return true;
@@ -249,7 +256,7 @@ bool FDTHPoseP1PoseWithExpression::RunTest(const FString&)
 	UAnimSequence* PoseOnly = DTHPoseRig::Write(*C.Mesh, *Library, {DTHPoseRig::Resolve(*Library, Seated)}, Folder, TEXT("A_PoseOnly"), Error);
 	UAnimSequence* Both = DTHPoseRig::Write(*C.Mesh, *Library, {DTHPoseRig::Resolve(*Library, Seated)}, Folder, TEXT("A_PoseWithFace"), Error);
 	// The expression on its own: the same keys on the rest pose (the face sequence itself is additive).
-	UAnimSequence* RestFace = DTHPoseRig::Write(*C.Mesh, *Library, {Library->State(Library->Rest)}, Folder, TEXT("A_RestWithFace"), Error);
+	UAnimSequence* RestFace = DTHPoseRig::Write(*C.Mesh, *Library, {Library->State(INDEX_NONE)}, Folder, TEXT("A_RestWithFace"), Error);
 	if (!PoseOnly || !Both || !RestFace) { AddError(Error); return false; }
 
 	// Key every face curve's frame-0 value onto the pose's frame, as the Expression Wizard's Key does.
@@ -335,11 +342,14 @@ bool FDTHPoseP1PartialPose::RunTest(const FString&)
 		AddError(TEXT("The samples need a partial and a full-body pose."));
 		return false;
 	}
-	const FDTHPose& Overlay = Library->Poses[Hand];
+	const FDTHPose& OverlayPose = Library->Poses[Hand];
+	FDTHPoseData Overlay;
+	Library->Data(Hand, Overlay);
 	TSet<int32> Moved(Overlay.Moved);
 	for (const int32 BaseIndex : TArray<int32>{INDEX_NONE, Full})
 	{
-		const FDTHPose& Base = BaseIndex == INDEX_NONE ? Library->Rest : Library->Poses[BaseIndex];
+		FDTHPoseData Base;
+		Library->Data(BaseIndex, Base);
 		const FDTHDazState Out = DTHPoseRig::Resolve(*Library, Hand, BaseIndex);
 		double Worst = 0.0;
 		FName WorstBone;
@@ -348,15 +358,15 @@ bool FDTHPoseP1PartialPose::RunTest(const FString&)
 			// Each bone's rotation relative to its parent comes from the overlay if the preset moves it, else from the base.
 			const FName Bone = Library->Bones[I];
 			const int32 P = Library->Bones.IndexOfByKey(Library->Parents[I]);
-			const FDTHPose& From = Moved.Contains(I) ? Overlay : Base;
+			const FDTHPoseData& From = Moved.Contains(I) ? Overlay : Base;
 			const FQuat Got = P == INDEX_NONE ? Out.Bones[Bone].Rot : Out.Bones[Library->Parents[I]].Rot.Inverse() * Out.Bones[Bone].Rot;
 			const FQuat Want = P == INDEX_NONE ? From.Rotations[I] : From.Rotations[P].Inverse() * From.Rotations[I];
 			const double D = DTHPoseTest::AngleDeg(Got, Want);
 			if (D > Worst) { Worst = D; WorstBone = Bone; }
 		}
 		const FString Over = BaseIndex == INDEX_NONE ? FString(TEXT("the rest pose")) : Library->Poses[BaseIndex].Label;
-		AddInfo(FString::Printf(TEXT("%s (%d bones) over %s: worst %.6f deg (%s)."), *Overlay.Label, Overlay.Moved.Num(), *Over, Worst, *WorstBone.ToString()));
-		if (Worst > 0.001) AddError(FString::Printf(TEXT("%s over %s is not composed as Daz composes it."), *Overlay.Label, *Over));
+		AddInfo(FString::Printf(TEXT("%s (%d bones) over %s: worst %.6f deg (%s)."), *OverlayPose.Label, Overlay.Moved.Num(), *Over, Worst, *WorstBone.ToString()));
+		if (Worst > 0.001) AddError(FString::Printf(TEXT("%s over %s is not composed as Daz composes it."), *OverlayPose.Label, *Over));
 	}
 	return true;
 }

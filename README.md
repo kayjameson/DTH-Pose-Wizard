@@ -29,6 +29,15 @@ Daz Studio (File > Open). It:
 
 Nothing is saved in Daz. Presets for other figure generations are listed and skipped.
 
+It is made for libraries of hundreds of thousands of presets:
+- It reads only the start of each preset file to tell what it is.
+- It writes the samples 100 presets to a file (`poses/`). `DTH_PoseSamples.json` only lists those files.
+- It shows its progress and can be cancelled.
+- A run that stops, because you cancelled or Daz closed, carries on where it left off the next time you run the
+  script. You can also start over.
+- A preset that was loading when Daz went down is tried once more. If Daz goes down on it again, it is listed as not
+  loaded, with the reason.
+
 From a script server, pass arguments as the script's argument object:
 
 | Argument | Meaning |
@@ -36,8 +45,9 @@ From a script server, pass arguments as the script's argument object:
 | `step` | `all` (default), `prepare`, `sample`, `rom`, `finish` |
 | `out` | output folder |
 | `folders` | extra content folders to sample, e.g. `["My Stuff/Poses"]` |
+| `fresh` | `true`: start over instead of carrying on an unfinished run |
 | `files` | sample only these presets |
-| `first`, `count` | which presets a `sample` step takes |
+| `chunk` | which file of 100 presets a `sample` step takes (default: the next one not sampled) |
 | `skip` | presets not to load (each one stopped Daz in an earlier run) |
 | `romLast` | last ROM frame |
 | `geometry` | also write the base mesh per state |
@@ -52,7 +62,10 @@ Set **Daz Samples File** (and, if you like, **Pose Library**) on the Settings pa
 - for each pose, any shapes a DTH character does not take from a body pose: face shapes (key those with the Expression
   Wizard) and add-on shape morphs DTH's ROM does not carry.
 
-Rebuilding from the same samples gives the same library.
+Rebuilding from the same samples gives the same library. The build reads the samples one file at a time and can be
+cancelled; a cancelled build leaves the library as it was. The library asset keeps each pose's bones in blocks that
+are only read when the pose is used, so a large library opens quickly. A library built by version 0.2.0 or earlier
+has to be built again.
 
 ## 3. Poses
 
@@ -97,10 +110,12 @@ What you see in the wizard is what the track plays, exactly:
   the pelvis; see the bake-fixed copy of the rig for a bake that works).
 - What the rig cannot show goes on a **layered FK Control Rig** track that the wizards add to the same binding, which
   Sequencer applies after the rig: bones no body control of DTH's rig drives (spine_05, the metatarsals, the pec
-  clavicles, the twist bones, the eyes) and face curves the board cannot write (six lip curves have no control, and
+  clavicles, the twist bones) and face curves the board cannot write (six lip curves have no control, and
   some expressions need both ends of one slider at once, such as nose wrinkle with nostril depress). Poses own the
   layer's bones, expressions its curves. The twist bones matter: DTH's post-process blends each one's own twist with
   its limb's, so the pose's twist shows on the character.
+- The eyes are left to the face board: Key Pose keys the layer's eye bones with no change, so the board's eye and aim
+  controls set the gaze, and a pose keyed over an older key clears an eye offset that key left.
 - Measured on Milly (2026-10-28): every body bone within 0.02 deg of the Pose Wizard's preview, every one of the 154
   expression curves within 0.005 of the Expression Wizard's mix, on every frame, with poses and expressions keyed
   together and alone; and on the character as shown (after DTH's post-process) the twist bones of a keyed pose the
@@ -131,6 +146,7 @@ frame. The report lists the bones the rig itself leaves off, which the layer cor
 Automation tests under `DTH.Pose` (Session Frontend, or the automation tools):
 - **`Unit`:** the retargeting maths.
 - **`P0`:** the Phase 0 measurements against DTH's own ground truth.
-- **`P1`:** the library, writing and playing back, and partial poses.
+- **`P1`:** the library, writing and playing back, and partial poses. `P1.LibraryScale` builds a 100,000-preset
+  library from the settings' samples and measures the build, the asset and reading poses back from it.
 
 They read their inputs from the settings' Testing section and write only to the Test Folder.

@@ -57,6 +57,15 @@ namespace
 		return Rig;
 	}
 
+	/** The poses of Samples with these labels (all of them for an empty set), read one samples file at a time. */
+	TArray<FDTHDazPose> ReadPoses(FAutomationTestBase& Test, const FDTHPoseSamples& Samples, const TSet<FString>& Labels)
+	{
+		TArray<FDTHDazPose> Out;
+		FString Error;
+		if (!Samples.ReadPoses(Out, [&Labels](const FString& Label) { return Labels.IsEmpty() || Labels.Contains(Label); }, Error)) Test.AddError(Error);
+		return Out;
+	}
+
 	bool IsTwist(FName Bone) { return Bone.ToString().Contains(TEXT("twist")); }
 
 	/** The presets also sampled on the character (Character Joints File): the ones these checks look at, not a whole library. */
@@ -67,7 +76,7 @@ namespace
 		FString Error;
 		if (Own.Load(GetDefault<UDTHPoseSettings>()->CharacterJointsFile.FilePath, Error))
 		{
-			for (const FDTHDazPose& P : Own.Poses) Out.Add(P.Label);
+			Own.ReadPoses([&Out](FDTHDazPose&& P) { Out.Add(P.Label); return true; }, Error);
 		}
 		return Out;
 	}
@@ -275,9 +284,12 @@ bool FDTHPoseP0PresetPoses::RunTest(const FString&)
 	const int32 PelvisIndex = Ref.FindBoneIndex(TEXT("pelvis"));
 
 	TArray<FString> Lines{TEXT("pose\tbone\tdaz_bone\tpos_err_cm\trot_err_deg\tlibrary_vs_own_deg")};
-	for (const FDTHDazPose& Pose : Samples.Poses)
+	const TArray<FDTHDazPose> OwnPoses = ReadPoses(*this, Own, {});
+	TSet<FString> OwnLabels;
+	for (const FDTHDazPose& P : OwnPoses) OwnLabels.Add(P.Label);
+	for (const FDTHDazPose& Pose : ReadPoses(*this, Samples, OwnLabels))
 	{
-		const FDTHDazPose* Mine = Own.Poses.FindByPredicate([&Pose](const FDTHDazPose& P) { return P.Label == Pose.Label; });
+		const FDTHDazPose* Mine = OwnPoses.FindByPredicate([&Pose](const FDTHDazPose& P) { return P.Label == Pose.Label; });
 		if (!Mine)
 		{
 			continue; // only the presets also sampled on the character are compared
@@ -408,7 +420,7 @@ bool FDTHPoseP0PresetScreenshots::RunTest(const FString&)
 	Harness.EvalPose({}, {}, Out);
 	Shoot(TEXT("bind"));
 	const TSet<FString> Sampled = CharacterSampled();
-	for (const FDTHDazPose& Pose : Samples.Poses)
+	for (const FDTHDazPose& Pose : ReadPoses(*this, Samples, Sampled))
 	{
 		if (!Pose.bLoaded || (!Sampled.IsEmpty() && !Sampled.Contains(Pose.Label))) continue;
 		const TMap<FName, FTransform> Wanted = DTHPoseSolve::Solve(Rig, Ref, Pose.State);
@@ -467,7 +479,7 @@ bool FDTHPoseP0CrossCharacter::RunTest(const FString&)
 	};
 	const TSet<FString> Sampled = CharacterSampled();
 	TArray<FString> Lines{TEXT("pose\ttrack_rot_diff_deg\ttrack_bone\tshared_vs_own_deg\tshared_bone\tshared_vs_own_cm\tcm_bone")};
-	for (const FDTHDazPose& Pose : Samples.Poses)
+	for (const FDTHDazPose& Pose : ReadPoses(*this, Samples, Sampled))
 	{
 		if (!Pose.bLoaded || (!Sampled.IsEmpty() && !Sampled.Contains(Pose.Label))) continue;
 		const auto A = Tracks(RigA, RefA, RetA, Pose.State);

@@ -2,6 +2,7 @@
 
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
@@ -48,24 +49,67 @@ namespace
 		}
 		return true;
 	}
+
+	bool ReadJson(const FString& File, TSharedPtr<FJsonValue>& Out, FString& OutError)
+	{
+		FString Text;
+		if (!FFileHelper::LoadFileToString(Text, *File))
+		{
+			OutError = FString::Printf(TEXT("Could not read %s."), *File);
+			return false;
+		}
+		if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Out) || !Out.IsValid())
+		{
+			OutError = FString::Printf(TEXT("%s is not valid JSON."), *File);
+			return false;
+		}
+		return true;
+	}
+
+	bool ReadPose(const TSharedPtr<FJsonValue>& V, FDTHDazPose& Pose)
+	{
+		const TSharedPtr<FJsonObject> P = V.IsValid() ? V->AsObject() : nullptr;
+		if (!P.IsValid()) return false;
+		Pose.Pack = P->GetStringField(TEXT("pack"));
+		Pose.Label = P->GetStringField(TEXT("label"));
+		Pose.File = P->GetStringField(TEXT("file"));
+		P->TryGetStringField(TEXT("icon"), Pose.Icon);
+		P->TryGetStringField(TEXT("type"), Pose.Type);
+		P->TryGetStringField(TEXT("reason"), Pose.Reason);
+		Pose.bLoaded = P->GetBoolField(TEXT("loaded"));
+		const TSharedPtr<FJsonObject>* State = nullptr;
+		if (Pose.bLoaded && P->TryGetObjectField(TEXT("state"), State))
+		{
+			Pose.bLoaded = ReadState(*State, Pose.State);
+		}
+		return true;
+	}
+
+	/** Version 1 keeps the poses in the samples file itself; version 2 in its samples files, one array each. */
+	bool VisitArray(const TArray<TSharedPtr<FJsonValue>>& Poses, TFunctionRef<bool(FDTHDazPose&&)> Visit)
+	{
+		for (const TSharedPtr<FJsonValue>& V : Poses)
+		{
+			FDTHDazPose Pose;
+			if (ReadPose(V, Pose) && !Visit(MoveTemp(Pose))) return false;
+		}
+		return true;
+	}
 }
 
-bool FDTHPoseSamples::Load(const FString& File, FString& OutError)
+bool FDTHPoseSamples::Load(const FString& InFile, FString& OutError)
 {
 	*this = FDTHPoseSamples();
-	FString Text;
-	if (!FFileHelper::LoadFileToString(Text, *File))
-	{
-		OutError = FString::Printf(TEXT("Could not read %s."), *File);
-		return false;
-	}
-	TSharedPtr<FJsonObject> Root;
-	if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root.IsValid()
-		|| Root->GetStringField(TEXT("format")) != TEXT("DTH Pose Samples"))
+	File = InFile;
+	TSharedPtr<FJsonValue> Value;
+	if (!ReadJson(File, Value, OutError)) return false;
+	const TSharedPtr<FJsonObject> Root = Value->AsObject();
+	if (!Root.IsValid() || Root->GetStringField(TEXT("format")) != TEXT("DTH Pose Samples"))
 	{
 		OutError = FString::Printf(TEXT("%s is not a DTH Pose Samples file."), *File);
 		return false;
 	}
+	const FString Dir = FPaths::GetPath(File);
 	DazVersion = Root->GetStringField(TEXT("dazVersion"));
 	SampledAt = Root->GetStringField(TEXT("sampledAt"));
 	if (!ReadState(Root->GetObjectField(TEXT("rest")), Rest))
@@ -73,9 +117,26 @@ bool FDTHPoseSamples::Load(const FString& File, FString& OutError)
 		OutError = TEXT("The samples file has no rest state.");
 		return false;
 	}
-	const TSharedPtr<FJsonObject>* Rom = nullptr;
+
+	// The ROM: inline (version 1) or a file next to this one (version 2).
+	TSharedPtr<FJsonObject> Rom;
+	FString RomFile;
+	if (Root->TryGetStringField(TEXT("rom"), RomFile))
+	{
+		TSharedPtr<FJsonValue> RomValue;
+		if (!RomFile.IsEmpty())
+		{
+			if (!ReadJson(Dir / RomFile, RomValue, OutError)) return false;
+			Rom = RomValue->AsObject();
+		}
+	}
+	else
+	{
+		const TSharedPtr<FJsonObject>* Inline = nullptr;
+		if (Root->TryGetObjectField(TEXT("rom"), Inline)) Rom = *Inline;
+	}
 	const TSharedPtr<FJsonObject>* Frames = nullptr;
-	if (Root->TryGetObjectField(TEXT("rom"), Rom) && (*Rom)->TryGetObjectField(TEXT("frames"), Frames))
+	if (Rom.IsValid() && Rom->TryGetObjectField(TEXT("frames"), Frames))
 	{
 		for (int32 F = 0; (*Frames)->HasField(FString::FromInt(F)); ++F)
 		{
@@ -86,35 +147,71 @@ bool FDTHPoseSamples::Load(const FString& File, FString& OutError)
 			}
 		}
 	}
+
+	const TArray<TSharedPtr<FJsonValue>>* ChunkArray = nullptr;
 	const TArray<TSharedPtr<FJsonValue>>* PoseArray = nullptr;
-	if (Root->TryGetArrayField(TEXT("poses"), PoseArray))
+	if (Root->TryGetArrayField(TEXT("chunks"), ChunkArray))
 	{
-		for (const TSharedPtr<FJsonValue>& V : *PoseArray)
-		{
-			const TSharedPtr<FJsonObject> P = V->AsObject();
-			FDTHDazPose& Pose = Poses.AddDefaulted_GetRef();
-			Pose.Pack = P->GetStringField(TEXT("pack"));
-			Pose.Label = P->GetStringField(TEXT("label"));
-			Pose.File = P->GetStringField(TEXT("file"));
-			P->TryGetStringField(TEXT("icon"), Pose.Icon);
-			P->TryGetStringField(TEXT("type"), Pose.Type);
-			P->TryGetStringField(TEXT("reason"), Pose.Reason);
-			Pose.bLoaded = P->GetBoolField(TEXT("loaded"));
-			const TSharedPtr<FJsonObject>* State = nullptr;
-			if (Pose.bLoaded && P->TryGetObjectField(TEXT("state"), State))
-			{
-				Pose.bLoaded = ReadState(*State, Pose.State);
-			}
-		}
+		for (const TSharedPtr<FJsonValue>& V : *ChunkArray) Chunks.Add(Dir / V->AsString());
+		NumPoses = int32(Root->GetNumberField(TEXT("presets")));
 	}
-	const TArray<TSharedPtr<FJsonValue>>* SkippedArray = nullptr;
-	if (Root->TryGetArrayField(TEXT("skipped"), SkippedArray))
+	else if (Root->TryGetArrayField(TEXT("poses"), PoseArray))
 	{
-		for (const TSharedPtr<FJsonValue>& V : *SkippedArray)
-		{
-			const TSharedPtr<FJsonObject> S = V->AsObject();
-			Skipped.Add(S->GetStringField(TEXT("file")) + TEXT(": ") + S->GetStringField(TEXT("reason")));
-		}
+		NumPoses = PoseArray->Num();
+	}
+
+	// Skipped files: inline (version 1) or a file next to this one (version 2).
+	TSharedPtr<FJsonValue> SkippedValue;
+	FString SkippedFile;
+	const TArray<TSharedPtr<FJsonValue>>* SkippedArray = nullptr;
+	if (Root->TryGetStringField(TEXT("skipped"), SkippedFile))
+	{
+		if (!ReadJson(Dir / SkippedFile, SkippedValue, OutError)) return false;
+		SkippedArray = &SkippedValue->AsArray();
+	}
+	else
+	{
+		Root->TryGetArrayField(TEXT("skipped"), SkippedArray);
+	}
+	for (int32 I = 0; SkippedArray && I < SkippedArray->Num(); ++I)
+	{
+		const TSharedPtr<FJsonObject> S = (*SkippedArray)[I]->AsObject();
+		if (S.IsValid()) Skipped.Add(S->GetStringField(TEXT("file")) + TEXT(": ") + S->GetStringField(TEXT("reason")));
 	}
 	return true;
+}
+
+bool FDTHPoseSamples::ReadPoses(TFunctionRef<bool(FDTHDazPose&&)> Visit, FString& OutError) const
+{
+	if (Chunks.IsEmpty())
+	{
+		TSharedPtr<FJsonValue> Value;
+		if (!ReadJson(File, Value, OutError)) return false;
+		const TArray<TSharedPtr<FJsonValue>>* Poses = nullptr;
+		if (Value->AsObject().IsValid() && Value->AsObject()->TryGetArrayField(TEXT("poses"), Poses)) VisitArray(*Poses, Visit);
+		return true;
+	}
+	for (const FString& Chunk : Chunks)
+	{
+		TSharedPtr<FJsonValue> Value;
+		if (!ReadJson(Chunk, Value, OutError)) return false;
+		const TArray<TSharedPtr<FJsonValue>>* Poses = nullptr;
+		if (!Value->TryGetArray(Poses))
+		{
+			OutError = FString::Printf(TEXT("%s is not a list of samples."), *Chunk);
+			return false;
+		}
+		if (!VisitArray(*Poses, Visit)) return true;
+	}
+	return true;
+}
+
+bool FDTHPoseSamples::ReadPoses(TArray<FDTHDazPose>& Out, TFunctionRef<bool(const FString& Label)> Wanted, FString& OutError) const
+{
+	Out.Reset();
+	return ReadPoses([&Out, &Wanted](FDTHDazPose&& Pose)
+	{
+		if (Wanted(Pose.Label)) Out.Add(MoveTemp(Pose));
+		return true;
+	}, OutError);
 }

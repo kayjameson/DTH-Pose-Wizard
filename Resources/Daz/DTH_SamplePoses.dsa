@@ -10,17 +10,24 @@
 // in any folder named "Poses" under People/ in every content directory, subfolders included. Folders for another
 // figure generation are listed and skipped. "Expressions" folders belong to the Expression Wizard and are left out.
 //
+// Libraries can hold hundreds of thousands of presets, so nothing here holds the whole library at once:
+// - the scan reads only the start of each file (its type) and writes the preset list in chunks of CHUNK presets;
+// - the samples are written one chunk at a time (poses/poses_*.json), and DTH_PoseSamples.json only lists the chunks;
+// - a run that stops (cancelled, or Daz closed) is resumed where it left off the next time the script runs. A preset that
+//   was loading when Daz went down is tried once more; if Daz goes down on it again it is listed as not loaded.
+//
 // Positions are Daz world space (cm, Y up), rotations Daz world-space quaternions [x, y, z, w]. The plugin converts.
 //
 // Run it from Daz Studio (File > Open, or double-click), or through a script server with `var args = {...}` defined
 // first. Without args it does every step with the defaults below.
 //   args.step      "all" (default) | "prepare" | "sample" | "rom" | "finish"
 //   args.out       output folder (default: Documents/DTH Pose Wizard)
+//   args.fresh     true: start over even if an unfinished run is there to resume ("all")
 //   args.folders   extra content-library folders to sample as well (all subfolders), e.g. ["My Stuff/Poses"]
 //   args.files     sample only these preset files (absolute, or relative to a content directory) instead of the scan
 //   args.romLast   last ROM frame to sample (default: the ROM's last key)
 //   args.geometry  true: also write the base mesh's vertex positions for every sampled state, under <out>/geometry
-//   args.first, args.count  ("sample") which presets of the prepared list to sample
+//   args.chunk     ("sample") which chunk of the prepared list to sample (default: the first one not sampled yet)
 //   args.skip      preset files not to load (each stopped Daz in an earlier run); listed as not loaded, with the reason
 //   args.figure    load this figure or scene file instead of base Genesis 9 (to measure a character's own joints)
 // The arguments can also be passed as the script's first argument (a script server that has no `args`).
@@ -31,6 +38,7 @@
 	var INTERACTIVE = !passed.length && typeof args === "undefined";
 	var STEP = A.step || "all";
 	var OUT = A.out || (App.getDocumentsPath() + "/DTH Pose Wizard");
+	var WORK = OUT + "/work";
 	var EXTRA_FOLDERS = A.folders || [];
 	var FILES = A.files || null;
 	var SKIP = {};
@@ -41,6 +49,11 @@
 	var ROM_DIR = "DazToHue/Poses/Genesis 9/DQS";
 	var ROM_BASE = "G9 DQS JCM FAC - Base.duf";
 	var CHANNELS = ["XRotate", "YRotate", "ZRotate", "XTranslate", "YTranslate", "ZTranslate"];
+	// Presets per list and samples file: about 2.5 MB of samples each.
+	var CHUNK = 100;
+	// The lines of a preset file read to find its type: Daz writes asset_info.type within the first few.
+	var HEADER_LINES = 40;
+	var TITLE = "DTH Pose Wizard";
 	var result = {step: STEP, messages: []};
 
 	function note(s) { result.messages.push(s); print(s); }
@@ -55,8 +68,21 @@
 		return "";
 	}
 
+	function exists(path) { return new DzFileInfo(path).exists(); }
 	function readText(path) { var f = new DzFile(path); if (!f.open(DzFile.ReadOnly)) return null; var t = f.read(); f.close(); return t; }
 	function writeText(path, text) { var f = new DzFile(path); if (!f.open(DzFile.WriteOnly | DzFile.Truncate)) return false; f.write(text); f.close(); return true; }
+	function readJson(path) { var t = readText(path); return t === null || t === "" ? null : JSON.parse(t); }
+	function writeJson(path, value) { return writeText(path, JSON.stringify(value)); }
+	function removeFile(path) { if (exists(path)) { var info = new DzFileInfo(path); new DzDir(info.path()).remove(info.fileName()); } }
+	function pad(n) { var t = "" + n; while (t.length < 6) t = "0" + t; return t; }
+	function listFile(c) { return WORK + "/list_" + pad(c) + ".json"; }
+	// Relative to OUT: DTH_PoseSamples.json lists the chunks this way.
+	function chunkName(c) { return "poses/poses_" + pad(c) + ".json"; }
+
+	function readState() { var st = readJson(WORK + "/state.json"); return st && st.version == 2 ? st : null; }
+	function writeState(st) { return writeJson(WORK + "/state.json", st); }
+	function chunkDone(c) { return exists(OUT + "/" + chunkName(c)); }
+	function chunksDone(st) { var n = 0; for (var c = 0; c < st.chunks; c++) if (chunkDone(c)) n++; return n; }
 
 	function mainFigure() {
 		for (var i = 0; i < Scene.getNumSkeletons(); i++) if (Scene.getSkeleton(i).getName() == "Genesis9") return Scene.getSkeleton(i);
@@ -69,24 +95,38 @@
 	}
 	function round(v, d) { var m = Math.pow(10, d); return Math.round(v * m) / m; }
 
-	// Every bone's world transform and evaluated local channels, and every morph that is not zero.
-	function sample() {
-		var fig = mainFigure(), bones = {}, morphs = {};
-		var all = [fig].concat(fig.getAllBones());
+	// The figure's bones (with their channels and parents) and morph values, looked up once per figure: looking up its
+	// 3,000 morphs and every bone's channels again for each preset took about 2.4 s of the 2.7 s a preset took.
+	var REFS = null;
+	function figureRefs() {
+		if (REFS) return REFS;
+		var fig = mainFigure(), all = [fig].concat(fig.getAllBones()), bones = [], morphs = [];
 		for (var i = 0; i < all.length; i++) {
-			var b = all[i], p = b.getWSPos(), r = b.getWSRot(), parent = b.getNodeParent();
-			var local = [];
-			for (var c = 0; c < CHANNELS.length; c++) local.push(round(channel(b, CHANNELS[c]).getValue(), 6));
-			bones[b.getName()] = {parent: parent && parent.inherits("DzBone") ? parent.getName() : "",
-				pos: [round(p.x, 6), round(p.y, 6), round(p.z, 6)], rot: [round(r.x, 8), round(r.y, 8), round(r.z, 8), round(r.w, 8)],
-				local: local};
+			var b = all[i], parent = b.getNodeParent(), ch = [];
+			for (var c = 0; c < CHANNELS.length; c++) ch.push(channel(b, CHANNELS[c]));
+			bones.push({node: b, name: b.getName(), parent: parent && parent.inherits("DzBone") ? parent.getName() : "", channels: ch});
 		}
 		var obj = fig.getObject();
 		for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
 			var mod = obj.getModifier(m);
-			if (!mod || !mod.inherits("DzMorph")) continue;
-			var v = mod.getValueControl().getValue();
-			if (Math.abs(v) > 1e-6) morphs[mod.getName()] = round(v, 6);
+			if (mod && mod.inherits("DzMorph")) morphs.push([mod.getName(), mod.getValueControl()]);
+		}
+		REFS = {bones: bones, morphs: morphs};
+		return REFS;
+	}
+
+	// Every bone's world transform and evaluated local channels, and every morph that is not zero.
+	function sample() {
+		var refs = figureRefs(), bones = {}, morphs = {};
+		for (var i = 0; i < refs.bones.length; i++) {
+			var b = refs.bones[i], p = b.node.getWSPos(), r = b.node.getWSRot(), local = [];
+			for (var c = 0; c < b.channels.length; c++) local.push(round(b.channels[c].getValue(), 6));
+			bones[b.name] = {parent: b.parent, pos: [round(p.x, 6), round(p.y, 6), round(p.z, 6)],
+				rot: [round(r.x, 8), round(r.y, 8), round(r.z, 8), round(r.w, 8)], local: local};
+		}
+		for (var m = 0; m < refs.morphs.length; m++) {
+			var v = refs.morphs[m][1].getValue();
+			if (Math.abs(v) > 1e-6) morphs[refs.morphs[m][0]] = round(v, 6);
 		}
 		return {bones: bones, morphs: morphs};
 	}
@@ -124,7 +164,8 @@
 		}
 		return snap;
 	}
-	function restore(snap) { for (var i = 0; i < snap.length; i++) snap[i][0].setValue(snap[i][1]); }
+	// Only the properties the preset changed are set back: each set makes Daz re-evaluate the figure.
+	function restore(snap) { for (var i = 0; i < snap.length; i++) if (snap[i][0].getRawValue() != snap[i][1]) snap[i][0].setValue(snap[i][1]); }
 	// Properties a restore did not put back (a property driven by another one cannot be set): "" when all came back.
 	function unrestored(snap) {
 		var out = [];
@@ -133,102 +174,165 @@
 		return out.join(", ");
 	}
 
+	// A preset's type from the start of its file, never the whole file. Compressed presets (gzip, not text) say nothing
+	// here: samplePresets tells them apart when it loads them.
 	function presetType(file) {
-		var text = readText(file) || "";
-		var type = text.charAt(0) == "{" ? /"type"\s*:\s*"([^"]+)"/.exec(text) : null;
-		return type ? type[1] : "";
+		var f = new DzFile(file);
+		if (!f.open(DzFile.ReadOnly)) return "";
+		var type = "";
+		for (var i = 0; i < HEADER_LINES && !type; i++) {
+			var line = f.readLine();
+			if (!line) break;
+			if (i == 0 && line.charAt(0) != "{") break;
+			var m = /"type"\s*:\s*"([^"]+)"/.exec(line);
+			if (m) type = m[1];
+		}
+		f.close();
+		return type;
 	}
 	function isPoseType(t) { return t == "preset_pose" || t == "preset_hierarchical_pose"; }
 
-	function listPresets() {
-		var list = [], skipped = [], seen = {}, mgr = App.getContentMgr();
+	// The scan: presets go to the list files CHUNK at a time as they are found.
+	function Scan() { this.buffer = []; this.chunks = 0; this.count = 0; this.skipped = []; this.seen = {}; this.cancelled = false; }
+	Scan.prototype.flush = function() {
+		if (!this.buffer.length) return;
+		writeJson(listFile(this.chunks), this.buffer);
+		this.chunks++;
+		this.buffer = [];
+	};
+
+	function listPresets(scan) {
+		var mgr = App.getContentMgr();
 		if (FILES) {
-			for (var f = 0; f < FILES.length; f++) {
+			for (var f = 0; f < FILES.length && !scan.cancelled; f++) {
 				var path = contentPath(FILES[f]);
-				if (!path) { skipped.push({file: FILES[f], reason: "not found in any content directory"}); continue; }
+				if (!path) { scan.skipped.push({file: FILES[f], reason: "not found in any content directory"}); continue; }
 				var info = new DzFileInfo(path);
-				addPreset(info.path(), info.path(), info.fileName(), list, skipped, seen);
+				addPreset(info.path(), info.path(), info.fileName(), scan);
 			}
-			return {presets: list, skipped: skipped};
 		}
-		for (var i = 0; i < mgr.getNumContentDirectories(); i++) {
-			var root = mgr.getContentDirectoryPath(i);
-			if (new DzFileInfo(root + "/People").exists()) findPoseFolders(root, "People", list, skipped, seen);
-			for (var e = 0; e < EXTRA_FOLDERS.length; e++)
-				if (new DzFileInfo(root + "/" + EXTRA_FOLDERS[e]).exists()) walk(root + "/" + EXTRA_FOLDERS[e], EXTRA_FOLDERS[e], list, skipped, seen);
+		else {
+			for (var i = 0; i < mgr.getNumContentDirectories() && !scan.cancelled; i++) {
+				var root = mgr.getContentDirectoryPath(i);
+				if (exists(root + "/People")) findPoseFolders(root, "People", scan);
+				for (var e = 0; e < EXTRA_FOLDERS.length; e++)
+					if (exists(root + "/" + EXTRA_FOLDERS[e])) walk(root + "/" + EXTRA_FOLDERS[e], EXTRA_FOLDERS[e], scan);
+			}
 		}
-		return {presets: list, skipped: skipped};
+		scan.flush();
 	}
 	// Every folder named "Poses" below People/: sampled if it belongs to Genesis 9 (People/Genesis 9...), listed as
 	// skipped otherwise.
-	function findPoseFolders(root, rel, list, skipped, seen) {
+	function findPoseFolders(root, rel, scan) {
 		var dirs = new DzDir(root + "/" + rel).entryList(DzDir.Dirs | DzDir.NoDotAndDotDot, DzDir.Name);
-		for (var j = 0; j < dirs.length; j++) {
+		for (var j = 0; j < dirs.length && !scan.cancelled; j++) {
 			var sub = rel + "/" + dirs[j], lower = dirs[j].toLowerCase();
 			if (lower == "expressions") continue;
 			if (lower == "poses") {
 				var figure = sub.split("/")[1];
-				if (figure.indexOf("Genesis 9") == 0) walk(root + "/" + sub, sub, list, skipped, seen);
-				else skipped.push({file: sub, reason: "made for " + figure + ", not Genesis 9"});
+				if (figure.indexOf("Genesis 9") == 0) walk(root + "/" + sub, sub, scan);
+				else scan.skipped.push({file: sub, reason: "made for " + figure + ", not Genesis 9"});
 			}
-			else findPoseFolders(root, sub, list, skipped, seen);
+			else findPoseFolders(root, sub, scan);
 		}
 	}
-	function walk(dirPath, rel, list, skipped, seen) {
+	function walk(dirPath, rel, scan) {
 		var d = new DzDir(dirPath);
 		var files = d.entryList(["*.duf"], DzDir.Files, DzDir.Name);
-		for (var i = 0; i < files.length; i++) addPreset(dirPath, rel, files[i], list, skipped, seen);
+		for (var i = 0; i < files.length && !scan.cancelled; i++) addPreset(dirPath, rel, files[i], scan);
 		var dirs = d.entryList(DzDir.Dirs | DzDir.NoDotAndDotDot, DzDir.Name);
-		for (var j = 0; j < dirs.length; j++) {
+		for (var j = 0; j < dirs.length && !scan.cancelled; j++) {
 			if (dirs[j].toLowerCase() == "expressions") continue;
-			walk(dirPath + "/" + dirs[j], rel + "/" + dirs[j], list, skipped, seen);
+			walk(dirPath + "/" + dirs[j], rel + "/" + dirs[j], scan);
 		}
 	}
-	function addPreset(dirPath, rel, file, list, skipped, seen) {
-		if (seen[rel + "/" + file]) return;
-		seen[rel + "/" + file] = true;
-		// Plain-text files say what they are; compressed ones are tried when sampled (samplePresets checks them).
+	function addPreset(dirPath, rel, file, scan) {
+		if (scan.seen[rel + "/" + file]) return;
+		scan.seen[rel + "/" + file] = true;
+		stepProgress(1);
+		if (progressIsCancelled()) { scan.cancelled = true; return; }
 		var type = presetType(dirPath + "/" + file);
-		if (type && !isPoseType(type)) { skipped.push({file: rel + "/" + file, reason: "not a pose preset (" + type + ")"}); return; }
+		if (type && !isPoseType(type)) { scan.skipped.push({file: rel + "/" + file, reason: "not a pose preset (" + type + ")"}); return; }
 		var icon = "", stem = dirPath + "/" + file.replace(/\.duf$/, "");
 		var icons = [dirPath + "/" + file + ".png", stem + ".png", stem + ".tip.png"];
-		for (var k = 0; k < icons.length && !icon; k++) if (new DzFileInfo(icons[k]).exists()) icon = icons[k];
-		list.push({pack: rel, label: file.replace(/\.duf$/, ""), file: dirPath + "/" + file, icon: icon, type: type || "compressed"});
+		for (var k = 0; k < icons.length && !icon; k++) if (exists(icons[k])) icon = icons[k];
+		scan.buffer.push({pack: rel, label: file.replace(/\.duf$/, ""), file: dirPath + "/" + file, icon: icon, type: type || "compressed"});
+		scan.count++;
+		if (scan.buffer.length == CHUNK) scan.flush();
 	}
 
-	function prepare() {
+	// Files an earlier run (of this version or the one before) left in OUT, cleared before a fresh run.
+	function clearRun() {
+		var dirs = [OUT, WORK, OUT + "/poses"];
+		var patterns = [/^samples_\d+\.json$/, /^presets\.json$/, /^progress\.txt$/, /^rest\.json$/, /^list_\d+\.json$/, /^state\.json$/, /^poses_\d+\.json$/];
+		for (var d = 0; d < dirs.length; d++) {
+			if (!exists(dirs[d])) continue;
+			var files = new DzDir(dirs[d]).entryList(["*.json", "*.txt"], DzDir.Files, DzDir.Name);
+			for (var f = 0; f < files.length; f++)
+				for (var p = 0; p < patterns.length; p++) if (patterns[p].test(files[f])) { removeFile(dirs[d] + "/" + files[f]); break; }
+		}
+	}
+
+	// A fresh base Genesis 9 in an empty scene.
+	function loadFigure() {
 		if (Scene.needsSave()) { result.error = "The open scene has unsaved changes. Save or close it, then run this again."; return false; }
 		Scene.clear();
+		REFS = null;
 		var fig = contentPath(FIGURE_FILE);
 		if (!fig) { result.error = "Genesis 9 is not installed (" + FIGURE_FILE + ")."; return false; }
 		App.getContentMgr().openFile(fig, true);
 		if (!mainFigure()) { result.error = "Loading Genesis 9 did not give a Genesis9 figure."; return false; }
 		Scene.setTime(0);
-		var found = listPresets();
-		new DzDir(OUT).mkpath(OUT);
-		writeText(OUT + "/presets.json", JSON.stringify(found));
-		var rest = sample();
-		rest.geometry = writeGeometry("rest");
-		writeText(OUT + "/rest.json", JSON.stringify(rest));
-		note("Genesis 9 loaded; " + found.presets.length + " pose presets found, " + found.skipped.length + " files or folders skipped.");
 		return true;
 	}
 
-	function samplePresets(first, count) {
-		var found = JSON.parse(readText(OUT + "/presets.json"));
+	function prepare() {
+		if (!loadFigure()) return false;
+		clearRun();
+		new DzDir(WORK).mkpath(WORK);
+		new DzDir(OUT + "/poses").mkpath(OUT + "/poses");
+		var scan = new Scan();
+		startProgress(TITLE + ": finding pose presets", 0, true, true);
+		try { listPresets(scan); } finally { finishProgress(); }
+		if (scan.cancelled) { result.error = "Cancelled while finding the pose presets."; return false; }
+		writeJson(OUT + "/skipped.json", scan.skipped);
+		var rest = sample();
+		rest.geometry = writeGeometry("rest");
+		writeJson(WORK + "/rest.json", rest);
+		writeState({version: 2, startedAt: new Date().toISOString(), presets: scan.count, chunks: scan.chunks, skipped: scan.skipped.length,
+			suspects: {}, crashed: {}, rom: false, complete: false});
+		note("Genesis 9 loaded; " + scan.count + " pose presets found, " + scan.skipped.length + " files or folders skipped.");
+		return true;
+	}
+
+	// A preset that was loading when Daz went down (progress.txt is still there) is tried once more, then left out.
+	function noteCrash(st) {
+		var progress = readText(WORK + "/progress.txt");
+		if (!progress) return;
+		var file = progress.split("\t")[1] || "";
+		removeFile(WORK + "/progress.txt");
+		if (!file) return;
+		st.suspects[file] = (st.suspects[file] || 0) + 1;
+		if (st.suspects[file] >= 2) st.crashed[file] = true;
+		writeState(st);
+	}
+
+	// Samples one chunk of the list into poses/poses_<chunk>.json. False if cancelled (nothing is written then).
+	function sampleChunk(st, c, snap, counts) {
+		var list = readJson(listFile(c)) || [];
 		var main = mainFigure(), out = [];
-		var last = Math.min(found.presets.length, first + count);
 		Scene.setTime(0);
-		// The figure is put back to this after every preset, so one snapshot serves them all.
-		var snap = snapshot();
-		for (var i = first; i < last; i++) {
-			var p = found.presets[i];
-			if (SKIP[p.file]) {
+		for (var i = 0; i < list.length; i++) {
+			var p = list[i];
+			stepProgress(1);
+			if (progressIsCancelled()) return false;
+			if (SKIP[p.file] || st.crashed[p.file]) {
 				out.push({pack: p.pack, label: p.label, file: p.file, icon: p.icon, type: p.type, loaded: false, reason: "it stopped Daz Studio when loaded", state: null});
+				counts.notLoaded++;
 				continue;
 			}
-			// Which preset is loading, so a preset that stops Daz can be found and listed.
-			writeText(OUT + "/progress.txt", i + "\t" + p.file);
+			// Which preset is loading, so a preset that stops Daz can be found and left out.
+			writeText(WORK + "/progress.txt", (c * CHUNK + i) + "\t" + p.file);
 			var nodes = Scene.getNumNodes();
 			Scene.selectAllNodes(false); main.select(true); Scene.setPrimarySelection(main);
 			var ok = App.getContentMgr().openFile(p.file, true), why = ok ? "" : "Daz could not load it";
@@ -238,18 +342,37 @@
 				ok = false; why = "not a pose preset (it adds items to the scene)";
 			}
 			var s = ok ? sample() : null;
-			if (s) s.geometry = writeGeometry("preset_" + i + "_" + p.label);
+			if (s) s.geometry = writeGeometry("preset_" + (c * CHUNK + i) + "_" + p.label);
 			restore(snap);
 			var left = unrestored(snap);
-			if (left) note("After " + p.label + " these did not return to rest: " + left);
+			if (left) counts.notRestored++;
+			if (!ok) counts.notLoaded++;
 			out.push({pack: p.pack, label: p.label, file: p.file, icon: p.icon, type: p.type, loaded: ok, reason: why, state: s, notRestored: left});
 		}
-		writeText(OUT + "/samples_" + first + ".json", JSON.stringify(out));
-		note("Sampled presets " + first + " to " + (last - 1) + " of " + found.presets.length + ".");
-		return last;
+		writeJson(OUT + "/" + chunkName(c), out);
+		removeFile(WORK + "/progress.txt");
+		return true;
 	}
 
-	function sampleRom() {
+	// Every chunk not sampled yet. False if cancelled.
+	function samplePresets(st) {
+		var todo = [];
+		for (var c = 0; c < st.chunks; c++) if (!chunkDone(c)) todo.push(c);
+		if (!todo.length) return true;
+		var snap = snapshot(), counts = {notLoaded: 0, notRestored: 0};
+		var total = st.presets - (st.chunks - todo.length) * CHUNK;
+		startProgress(TITLE + ": sampling " + total + " pose presets", Math.max(total, 1), true, true);
+		var done = true;
+		try {
+			for (var t = 0; t < todo.length && done; t++) done = sampleChunk(st, todo[t], snap, counts);
+		} finally { finishProgress(); }
+		if (counts.notLoaded) note(counts.notLoaded + " presets did not load (the samples say why).");
+		if (counts.notRestored) note(counts.notRestored + " presets left a property the figure could not set back (listed with each preset).");
+		if (!done) { result.error = "Cancelled. Run the script again to carry on where it stopped."; return false; }
+		return true;
+	}
+
+	function sampleRom(st) {
 		var main = mainFigure();
 		var base = contentPath(ROM_DIR + "/" + ROM_BASE);
 		if (!base) { result.error = "DazToHue's Genesis 9 ROM preset (" + ROM_DIR + "/" + ROM_BASE + ") is missing."; return false; }
@@ -280,48 +403,94 @@
 		for (var j = 0; j < all.length; j++)
 			for (var c2 = 0; c2 < CHANNELS.length; c2++) { var cc = channel(all[j], CHANNELS[c2]); if (cc.getNumKeys() > 0) cc.deleteAllKeys(); }
 		restore(snap);
-		writeText(OUT + "/rom.json", JSON.stringify({basePreset: ROM_DIR + "/" + ROM_BASE, lastKey: lastKey, frames: frames}));
+		writeJson(OUT + "/rom.json", {basePreset: ROM_DIR + "/" + ROM_BASE, lastKey: lastKey, frames: frames});
+		st.rom = true;
+		writeState(st);
 		note("Sampled DTH's ROM: frames 0 to " + last + " (last key " + lastKey + ").");
 		return true;
 	}
 
-	function finish() {
-		var found = JSON.parse(readText(OUT + "/presets.json"));
-		var poses = [];
-		for (var first = 0; first < found.presets.length; ) {
-			var t = readText(OUT + "/samples_" + first + ".json");
-			if (t === null) { result.error = "Presets from " + first + " were not sampled."; return false; }
-			var part = JSON.parse(t);
-			poses = poses.concat(part);
-			first += part.length;
-			if (!part.length) break;
+	// DTH_PoseSamples.json: the rest state and the list of samples files, never the samples themselves.
+	function finish(st) {
+		var chunks = [];
+		for (var c = 0; c < st.chunks; c++) {
+			if (!chunkDone(c)) { result.error = "Presets " + (c * CHUNK) + " to " + (Math.min(st.presets, (c + 1) * CHUNK) - 1) + " were not sampled."; return false; }
+			chunks.push(chunkName(c));
 		}
-		var rom = readText(OUT + "/rom.json");
-		var doc = {format: "DTH Pose Samples", version: 1, sampledAt: new Date().toISOString(),
+		var doc = {format: "DTH Pose Samples", version: 2, sampledAt: new Date().toISOString(),
 			dazVersion: App.longVersionString, figure: "Genesis 9", units: "cm, Y up, Daz world space",
-			extraFolders: EXTRA_FOLDERS, files: FILES,
-			rest: JSON.parse(readText(OUT + "/rest.json")), rom: rom ? JSON.parse(rom) : null,
-			poses: poses, skipped: found.skipped};
-		writeText(OUT + "/DTH_PoseSamples.json", JSON.stringify(doc));
+			extraFolders: EXTRA_FOLDERS, files: FILES, presets: st.presets,
+			rest: readJson(WORK + "/rest.json"), rom: st.rom ? "rom.json" : "", chunks: chunks, skipped: "skipped.json"};
+		writeJson(OUT + "/DTH_PoseSamples.json", doc);
+		st.complete = true;
+		writeState(st);
 		result.file = OUT + "/DTH_PoseSamples.json";
-		note("Wrote " + result.file + " (" + poses.length + " poses).");
+		note("Wrote " + result.file + " (" + st.presets + " pose presets in " + chunks.length + " files).");
 		return true;
 	}
 
-	if (STEP == "prepare") prepare();
-	else if (STEP == "sample") result.next = samplePresets(A.first || 0, A.count || 25);
-	else if (STEP == "rom") sampleRom();
-	else if (STEP == "finish") finish();
-	else if (STEP == "all") {
-		if (prepare()) {
-			var total = JSON.parse(readText(OUT + "/presets.json")).presets.length;
-			for (var first = 0; first < total; ) first = samplePresets(first, 25);
-			if (sampleRom()) finish();
+	// An unfinished run to carry on, or null for a fresh one.
+	function resumable() {
+		var st = readState();
+		if (!st || st.complete || A.fresh) return null;
+		if (!INTERACTIVE) return st;
+		var q = MessageBox.question("An unfinished run from " + st.startedAt + " is in " + OUT + ": " + Math.min(st.presets, chunksDone(st) * CHUNK) +
+			" of " + st.presets + " pose presets sampled.\n\nCarry on where it stopped, or start over (finds the presets again)?",
+			TITLE, "&Carry On", "&Start Over", "&Cancel");
+		if (q == 2) { result.error = "cancelled"; return null; }
+		return q == 0 ? st : null;
+	}
+
+	function all() {
+		var st = resumable();
+		if (result.error) return false;
+		if (st) {
+			if (!loadFigure()) return false;
+			noteCrash(st);
+			note("Carrying on the run from " + st.startedAt + ".");
 		}
-		if (INTERACTIVE) {
-			if (result.error) MessageBox.critical(result.error, "DTH Pose Wizard", "OK");
-			else MessageBox.information(result.messages.join("\n"), "DTH Pose Wizard", "OK");
+		else {
+			if (!prepare()) return false;
+			st = readState();
+		}
+		if (!samplePresets(st)) return false;
+		if (!st.rom && !sampleRom(st)) return false;
+		return finish(st);
+	}
+
+	function step() {
+		if (STEP == "prepare") return prepare();
+		var st = readState();
+		if (!st) { result.error = "Nothing prepared in " + OUT + ": run the prepare step first."; return false; }
+		if (STEP == "sample") {
+			if (!mainFigure() && !loadFigure()) return false;
+			noteCrash(st);
+			var c = typeof A.chunk == "number" ? A.chunk : -1;
+			for (var i = 0; c < 0 && i < st.chunks; i++) if (!chunkDone(i)) c = i;
+			if (c < 0 || c >= st.chunks) { result.next = -1; return true; }
+			var counts = {notLoaded: 0, notRestored: 0};
+			startProgress(TITLE + ": sampling chunk " + c, CHUNK, true, true);
+			var done;
+			try { done = sampleChunk(st, c, snapshot(), counts); } finally { finishProgress(); }
+			if (!done) { result.error = "Cancelled."; return false; }
+			result.next = -1;
+			for (var j = 0; j < st.chunks; j++) if (!chunkDone(j)) { result.next = j; break; }
+			note("Sampled chunk " + c + " of " + st.chunks + ".");
+			return true;
+		}
+		if (STEP == "rom") return sampleRom(st);
+		if (STEP == "finish") return finish(st);
+		result.error = "Unknown step " + STEP + ".";
+		return false;
+	}
+
+	if (STEP == "all") {
+		all();
+		if (INTERACTIVE && result.error != "cancelled") {
+			if (result.error) MessageBox.critical(result.messages.concat([result.error]).join("\n"), TITLE, "OK");
+			else MessageBox.information(result.messages.join("\n"), TITLE, "OK");
 		}
 	}
+	else step();
 	return result;
 })();

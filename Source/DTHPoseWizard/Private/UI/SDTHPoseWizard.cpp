@@ -271,15 +271,8 @@ FText SDTHPoseWizard::GetLibrarySummary() const
 		Settings->SamplesFile.FilePath.IsEmpty() ? TEXT("(not set: see Settings)") : *Settings->SamplesFile.FilePath, *Settings->LibraryAsset);
 	if (Lib)
 	{
-		int32 Loaded = 0, Partial = 0, WithMissing = 0;
-		for (const FDTHPose& P : Lib->Poses)
-		{
-			Loaded += P.bLoaded ? 1 : 0;
-			Partial += P.bLoaded && P.bPartial ? 1 : 0;
-			WithMissing += P.Missing.IsEmpty() ? 0 : 1;
-		}
 		Text += FString::Printf(TEXT("Built from samples taken %s (Daz %s): %d poses, %d of them partial (hands, feet), %d with shapes a DTH character does not take from a body pose; %d presets did not load, %d folders or files skipped."),
-			*Lib->SampledAt, *Lib->DazVersion, Loaded, Partial, WithMissing, Lib->Poses.Num() - Loaded, Lib->Skipped.Num());
+			*Lib->SampledAt, *Lib->DazVersion, Lib->NumLoaded, Lib->NumPartial, Lib->NumWithMissing, Lib->Poses.Num() - Lib->NumLoaded, Lib->Skipped.Num());
 	}
 	else
 	{
@@ -315,6 +308,12 @@ void SDTHPoseWizard::LoadLibrary()
 	const FString& Path = GetDefault<UDTHPoseSettings>()->LibraryAsset;
 	const FString Object = Path.Contains(TEXT(".")) ? Path : Path + TEXT(".") + FPackageName::GetShortName(Path);
 	Library = Path.IsEmpty() ? nullptr : LoadObject<UDTHPoseLibrary>(nullptr, *Object, nullptr, LOAD_NoWarn | LOAD_Quiet);
+	if (Library.IsValid() && !Library->IsCurrent())
+	{
+		// Built by an earlier version: no pose data in the current layout.
+		Library = nullptr;
+		Status = TEXT("The pose library was built by an earlier version of the wizard: build it again (Build Library).");
+	}
 	Icons.Reset();
 	SheetRows.Reset();
 	if (SheetList.IsValid()) SheetList->RequestListRefresh();
@@ -569,9 +568,16 @@ FString SDTHPoseWizard::PoseName(int32 Pose) const
 
 const FSlateBrush* SDTHPoseWizard::GetIcon(int32 Pose)
 {
-	if (const TSharedPtr<FSlateDynamicImageBrush>* Found = Icons.Find(Pose))
+	if (FIcon* Found = Icons.Find(Pose))
 	{
-		return Found->IsValid() ? Found->Get() : FAppStyle::GetBrush("ClassIcon.AnimSequence");
+		Found->Frame = GFrameCounter;
+		return Found->Brush.IsValid() ? Found->Brush.Get() : FAppStyle::GetBrush("ClassIcon.AnimSequence");
+	}
+	// A library can hold hundreds of thousands of presets: keep only the icons drawn in the last few frames.
+	constexpr int32 MaxIcons = 512;
+	if (Icons.Num() >= MaxIcons)
+	{
+		for (auto It = Icons.CreateIterator(); It; ++It) if (It->Value.Frame + 10 < GFrameCounter) It.RemoveCurrent();
 	}
 	TSharedPtr<FSlateDynamicImageBrush> Brush;
 	const UDTHPoseLibrary* Lib = Library.Get();
@@ -579,7 +585,7 @@ const FSlateBrush* SDTHPoseWizard::GetIcon(int32 Pose)
 	{
 		Brush = MakeShared<FSlateDynamicImageBrush>(FName(*Lib->Poses[Pose].IconFile), FVector2D(48.0, 48.0));
 	}
-	Icons.Add(Pose, Brush);
+	Icons.Add(Pose, {Brush, GFrameCounter});
 	return Brush.IsValid() ? Brush.Get() : FAppStyle::GetBrush("ClassIcon.AnimSequence");
 }
 
@@ -602,7 +608,7 @@ TSharedRef<ITableRow> SDTHPoseWizard::MakePoseRow(TSharedPtr<int32> Item, const 
 			[
 				SNew(SBox).WidthOverride(48.f).HeightOverride(48.f)
 				[
-					SNew(SImage).Image(GetIcon(Index))
+					SNew(SImage).Image_Lambda([this, Index]() { return GetIcon(Index); })
 				]
 			]
 			+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
@@ -688,7 +694,7 @@ void SDTHPoseWizard::ShowPose(int32 Pose)
 		return;
 	}
 	const DTHPoseSolve::FRig Rig = DTHPoseRig::Make(*Mesh, *Lib);
-	const FDTHDazState State = Lib->Poses.IsValidIndex(Pose) ? DTHPoseRig::Resolve(*Lib, Pose, Base) : Lib->State(Lib->Rest);
+	const FDTHDazState State = Lib->Poses.IsValidIndex(Pose) ? DTHPoseRig::Resolve(*Lib, Pose, Base) : Lib->State(INDEX_NONE);
 	Preview->SetPose(DTHPoseRig::LocalPose(Rig, *Mesh, State));
 }
 

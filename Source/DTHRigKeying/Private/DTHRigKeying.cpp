@@ -561,9 +561,13 @@ namespace DTHRigKeying
 			Out.WorstCm = FMath::Max(Out.WorstCm, Cm);
 			if (Deg > 0.05 || Cm > 0.05) Out.Unreached.Add(FString::Printf(TEXT("%s %.2f deg %.2f cm"), *B.ToString(), Deg, Cm));
 			// The layer applies Delta * (the rig's local) per bone, in hierarchy order, so the local delta is exact.
+			// Except the eyes: the gaze belongs to the face board (its eye and aim controls), and an eye delta on the layer is
+			// added to whatever the board does, so it would hold the eyes off wherever the board points them (user,
+			// 2026-10-29). They are keyed with no change, which also clears an eye delta an earlier key left on the frame.
 			const FTransform* Wanted = LocalPose.Find(B);
 			const FTransform RigLocal = H->GetLocalTransform(FRigElementKey(B, ERigElementType::Bone));
-			FTransform Delta = Wanted ? *Wanted * RigLocal.Inverse() : FTransform::Identity;
+			const bool bEye = B == TEXT("eye_l") || B == TEXT("eye_r");
+			FTransform Delta = Wanted && !bEye ? *Wanted * RigLocal.Inverse() : FTransform::Identity;
 			Delta.NormalizeRotation();
 			Out.Layer.Add(UFKControlRig::GetControlName(B, ERigElementType::Bone), Delta);
 		}

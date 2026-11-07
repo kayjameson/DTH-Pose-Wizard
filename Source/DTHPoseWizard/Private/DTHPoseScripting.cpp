@@ -18,7 +18,9 @@ namespace
 	{
 		const FString& Path = GetDefault<UDTHPoseSettings>()->LibraryAsset;
 		const FString Object = Path.Contains(TEXT(".")) ? Path : Path + TEXT(".") + FPackageName::GetShortName(Path);
-		return Path.IsEmpty() ? nullptr : LoadObject<UDTHPoseLibrary>(nullptr, *Object, nullptr, LOAD_NoWarn | LOAD_Quiet);
+		UDTHPoseLibrary* Library = Path.IsEmpty() ? nullptr : LoadObject<UDTHPoseLibrary>(nullptr, *Object, nullptr, LOAD_NoWarn | LOAD_Quiet);
+		// A library built by an earlier version has no pose data in the current layout: it has to be built again.
+		return Library && Library->IsCurrent() ? Library : nullptr;
 	}
 
 	FString Line(const FDTHPoseMessage& M)

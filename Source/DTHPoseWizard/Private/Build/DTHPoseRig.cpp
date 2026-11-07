@@ -15,7 +15,7 @@ namespace DTHPoseRig
 	{
 		const FReferenceSkeleton& Ref = Mesh.GetRefSkeleton();
 		DTHPoseSolve::FRig Rig;
-		Rig.DazRest = Library.State(Library.Rest);
+		Rig.DazRest = Library.State(INDEX_NONE);
 		Rig.MeshRest = DTHPoseSolve::ComponentSpace(Ref, [&Ref](int32 I) { return Ref.GetRefBonePose()[I]; });
 		Rig.Axes = DTHPoseSolve::DazToUE();
 		Rig.Map = DTHPoseSolve::MapFromTable(Ref);
@@ -29,15 +29,14 @@ namespace DTHPoseRig
 	{
 		if (!Library.Poses.IsValidIndex(Pose) || !Library.Poses[Pose].bLoaded)
 		{
-			return Library.State(Library.Rest);
+			return Library.State(INDEX_NONE);
 		}
-		const FDTHPose& P = Library.Poses[Pose];
-		if (!P.bPartial)
+		if (!Library.Poses[Pose].bPartial)
 		{
-			return Library.State(P);
+			return Library.State(Pose);
 		}
-		const FDTHPose& Under = Library.Poses.IsValidIndex(Base) && Library.Poses[Base].bLoaded && Base != Pose ? Library.Poses[Base] : Library.Rest;
-		return Library.Compose(Under, P);
+		const int32 Under = Library.Poses.IsValidIndex(Base) && Library.Poses[Base].bLoaded && Base != Pose ? Base : INDEX_NONE;
+		return Library.Compose(Under, Pose);
 	}
 
 	TMap<FName, FTransform> LocalPose(const DTHPoseSolve::FRig& Rig, const USkeletalMesh& Mesh, const FDTHDazState& State)

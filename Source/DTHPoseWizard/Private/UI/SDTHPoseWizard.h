@@ -81,7 +81,9 @@ private:
 	FString Search;
 	TArray<TSharedPtr<int32>> PoseRows;
 	TSharedPtr<SListView<TSharedPtr<int32>>> PoseList;
-	TMap<int32, TSharedPtr<FSlateDynamicImageBrush>> Icons;
+	/** Preset icons of the rows on screen lately (the frame each was last drawn): the ones out of sight are let go. */
+	struct FIcon { TSharedPtr<FSlateDynamicImageBrush> Brush; uint64 Frame = 0; };
+	TMap<int32, FIcon> Icons;
 	int32 Selected = INDEX_NONE;
 	/** The pose a partial (hand) pose is laid over: INDEX_NONE for the rest pose (UnrealPose). */
 	int32 Base = INDEX_NONE;

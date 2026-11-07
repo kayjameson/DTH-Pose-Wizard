@@ -27,15 +27,30 @@ struct FDTHDazPose
 	FDTHDazState State;
 };
 
-/** DTH_PoseSamples.json, written by Resources/Daz/DTH_SamplePoses.dsa. */
+/**
+ * DTH_PoseSamples.json, written by Resources/Daz/DTH_SamplePoses.dsa. Load reads the rest state, the ROM and the skipped
+ * files; the poses, which can run to hundreds of thousands, are only read by ReadPoses, one samples file at a time.
+ */
 struct FDTHPoseSamples
 {
 	FString DazVersion, SampledAt;
 	FDTHDazState Rest;
 	/** DTH's ROM, by frame. */
 	TArray<FDTHDazState> RomFrames;
-	TArray<FDTHDazPose> Poses;
 	TArray<FString> Skipped;
+	/** How many presets the samples hold. */
+	int32 NumPoses = 0;
 
 	bool Load(const FString& File, FString& OutError);
+
+	/** Hands every pose to Visit in the sampler's order; Visit returns false to stop. False (and OutError) if a file is unreadable. */
+	bool ReadPoses(TFunctionRef<bool(FDTHDazPose&&)> Visit, FString& OutError) const;
+
+	/** The poses Wanted picks (by label), for checks that look at a few presets. */
+	bool ReadPoses(TArray<FDTHDazPose>& Out, TFunctionRef<bool(const FString& Label)> Wanted, FString& OutError) const;
+
+private:
+	FString File;
+	/** Version 2: the samples files (absolute paths). Version 1 keeps its poses in File itself. */
+	TArray<FString> Chunks;
 };
