@@ -24,10 +24,11 @@ namespace DTHPoseCharacter
 	DTHPOSECORE_API TMap<FName, FTransform> Track(const DTHPoseSolve::FRig& Rig, const USkeletalMesh& Mesh, const FDTHDazState& State);
 
 	/**
-	 * Creates and saves Folder/Name for the character's skeleton, one key per state. A name already taken gets a number.
+	 * Creates and saves Folder/Name for the character's skeleton, one key per state at Rate. A name already taken gets a
+	 * number.
 	 */
 	DTHPOSECORE_API UAnimSequence* Write(const USkeletalMesh& Mesh, const FDTHDazState& DazRest, TConstArrayView<FDTHDazState> Frames,
-		const FString& Folder, const FString& Name, FString& OutError);
+		const FString& Folder, const FString& Name, FString& OutError, FFrameRate Rate = FFrameRate(30, 1));
 
 	/** A content-safe asset name from a label. */
 	DTHPOSECORE_API FString AssetName(const FString& Label);

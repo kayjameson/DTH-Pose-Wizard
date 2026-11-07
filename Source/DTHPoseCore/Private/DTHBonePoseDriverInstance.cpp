@@ -1,4 +1,4 @@
-#include "Probe/DTHBonePoseDriverInstance.h"
+#include "DTHBonePoseDriverInstance.h"
 
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimationPoseData.h"

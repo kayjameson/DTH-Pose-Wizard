@@ -11,7 +11,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "Library/DTHPoseLibrary.h"
 #include "Library/DTHPoseLibraryBuild.h"
-#include "Probe/DTHBodyHarness.h"
+#include "DTHBodyHarness.h"
 #include "Settings/DTHPoseSettings.h"
 
 namespace

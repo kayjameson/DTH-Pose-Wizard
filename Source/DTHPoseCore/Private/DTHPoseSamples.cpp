@@ -6,7 +6,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
-namespace
+namespace DTHDazSamples
 {
 	bool ReadState(const TSharedPtr<FJsonObject>& Object, FDTHDazState& Out)
 	{
@@ -49,6 +49,11 @@ namespace
 		}
 		return true;
 	}
+}
+
+namespace
+{
+	using DTHDazSamples::ReadState;
 
 	bool ReadJson(const FString& File, TSharedPtr<FJsonValue>& Out, FString& OutError)
 	{

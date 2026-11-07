@@ -19,6 +19,8 @@ public class DTHPoseCore : ModuleRules
 			"UnrealEd",
 			"AssetRegistry",
 			"Json",
+			"RenderCore",
+			"ImageCore",
 		});
 	}
 }

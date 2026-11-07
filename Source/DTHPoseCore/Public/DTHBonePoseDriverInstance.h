@@ -33,7 +33,7 @@ private:
  * - SetSequence: plays one frame of a sequence the way a sequence player does, retargeting included.
  */
 UCLASS(Transient, NotBlueprintable)
-class UDTHBonePoseDriverInstance : public UAnimInstance
+class DTHPOSECORE_API UDTHBonePoseDriverInstance : public UAnimInstance
 {
 	GENERATED_BODY()
 

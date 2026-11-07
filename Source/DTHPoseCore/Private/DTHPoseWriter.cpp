@@ -21,7 +21,7 @@ namespace DTHPoseWriter
 	}
 
 	UAnimSequence* Create(const FString& Folder, const FString& Name, USkeleton* Skeleton,
-		TConstArrayView<TMap<FName, FTransform>> Frames, FString& OutError)
+		TConstArrayView<TMap<FName, FTransform>> Frames, FString& OutError, FFrameRate Rate)
 	{
 		if (!Skeleton || Frames.Num() == 0)
 		{
@@ -49,7 +49,7 @@ namespace DTHPoseWriter
 		IAnimationDataController& Controller = Sequence->GetController();
 		Controller.InitializeModel();
 		Controller.OpenBracket(LOCTEXT("CreatePose", "Create pose sequence"), false);
-		Controller.SetFrameRate(FrameRate(), false);
+		Controller.SetFrameRate(Rate, false);
 		// A sequence of N keys spans N - 1 frames; a single pose is one key on frame 0.
 		Controller.SetNumberOfFrames(FFrameNumber(FMath::Max(Keys - 1, 1)), false);
 		const int32 ModelKeys = Sequence->GetDataModel()->GetNumberOfKeys();

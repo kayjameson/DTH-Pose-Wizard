@@ -54,3 +54,12 @@ private:
 	/** Version 2: the samples files (absolute paths). Version 1 keeps its poses in File itself. */
 	TArray<FString> Chunks;
 };
+
+class FJsonObject;
+
+/** The samples' state format, shared by every Daz sampler (DTH_SamplePoses.dsa, the Animation Wizard's clip sampler). */
+namespace DTHDazSamples
+{
+	/** One sampled state ({bones: {name: {parent, pos, rot, local}}, morphs: {name: value}}). False if it is malformed. */
+	DTHPOSECORE_API bool ReadState(const TSharedPtr<FJsonObject>& Object, FDTHDazState& Out);
+}

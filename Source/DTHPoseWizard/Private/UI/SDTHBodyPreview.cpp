@@ -5,7 +5,7 @@
 #include "EditorViewportClient.h"
 #include "Engine/SkeletalMesh.h"
 #include "ImageUtils.h"
-#include "Probe/DTHBonePoseDriverInstance.h"
+#include "DTHBonePoseDriverInstance.h"
 #include "RenderingThread.h"
 
 namespace

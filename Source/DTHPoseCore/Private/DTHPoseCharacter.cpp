@@ -52,7 +52,7 @@ namespace DTHPoseCharacter
 	}
 
 	UAnimSequence* Write(const USkeletalMesh& Mesh, const FDTHDazState& DazRest, TConstArrayView<FDTHDazState> Frames,
-		const FString& Folder, const FString& Name, FString& OutError)
+		const FString& Folder, const FString& Name, FString& OutError, FFrameRate Rate)
 	{
 		if (!Mesh.GetSkeleton() || Frames.Num() == 0)
 		{
@@ -65,7 +65,7 @@ namespace DTHPoseCharacter
 		FString Unique = Name;
 		for (int32 N = 2; FPackageName::DoesPackageExist(Folder / Unique); ++N) Unique = FString::Printf(TEXT("%s_%d"), *Name, N);
 		// The sequence references the skeleton; the mesh is only read.
-		return DTHPoseWriter::Create(Folder, Unique, const_cast<USkeleton*>(Mesh.GetSkeleton()), Tracks, OutError);
+		return DTHPoseWriter::Create(Folder, Unique, const_cast<USkeleton*>(Mesh.GetSkeleton()), Tracks, OutError, Rate);
 	}
 
 	FString AssetName(const FString& Label)

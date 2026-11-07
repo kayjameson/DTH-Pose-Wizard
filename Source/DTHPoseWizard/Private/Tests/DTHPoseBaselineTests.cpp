@@ -82,13 +82,18 @@ bool FDTHPoseMatchesBaselineTest::RunTest(const FString& Parameters)
 					bSame = false;
 					continue;
 				}
-				const double Deg = DTHPoseTest::AngleDeg(B.Value.GetRotation(), T->GetRotation());
-				const double Cm = FVector::Dist(B.Value.GetTranslation(), T->GetTranslation());
+				// Exact: the largest change in any stored component (a quaternion and its negative are the same rotation).
+				// An angle would not do: acos next to 1 reads identical rotations as ~1e-6 deg apart.
+				const FQuat P1 = B.Value.GetRotation(), Q1 = T->GetRotation();
+				auto MaxAbs = [](double A, double B, double C, double D) { return FMath::Max(FMath::Max(FMath::Abs(A), FMath::Abs(B)), FMath::Max(FMath::Abs(C), FMath::Abs(D))); };
+				const double Quat = FMath::Min(MaxAbs(P1.X - Q1.X, P1.Y - Q1.Y, P1.Z - Q1.Z, P1.W - Q1.W),
+					MaxAbs(P1.X + Q1.X, P1.Y + Q1.Y, P1.Z + Q1.Z, P1.W + Q1.W));
+				const double Cm = (B.Value.GetTranslation() - T->GetTranslation()).GetAbsMax();
 				const double Scale = (B.Value.GetScale3D() - T->GetScale3D()).GetAbsMax();
-				WorstDeg = FMath::Max(WorstDeg, Deg);
+				WorstDeg = FMath::Max(WorstDeg, Quat);
 				WorstCm = FMath::Max(WorstCm, Cm);
 				WorstScale = FMath::Max(WorstScale, Scale);
-				if (Deg > 1e-6 || Cm > 1e-6 || Scale > 1e-9) bSame = false;
+				if (Quat > 0.0 || Cm > 0.0 || Scale > 0.0) bSame = false;
 			}
 		}
 		Lines.Add(FString::Printf(TEXT("%s %s (%d keys)"), bSame ? TEXT("same   ") : TEXT("DIFFERS"), *Rel, Keys));
@@ -98,7 +103,7 @@ bool FDTHPoseMatchesBaselineTest::RunTest(const FString& Parameters)
 			++Differ;
 		}
 	}
-	Lines.Insert(FString::Printf(TEXT("Baseline %s vs %s: %d sequences compared, %d differ. Largest change %.3g deg, %.3g cm, scale %.3g."),
+	Lines.Insert(FString::Printf(TEXT("Baseline %s vs %s: %d sequences compared, %d differ. Largest change in a stored component: rotation quaternion %.3g, translation %.3g cm, scale %.3g."),
 		*Baseline, *C.TestFolder, Compared, Differ, WorstDeg, WorstCm, WorstScale), 0);
 	AddInfo(Lines[0]);
 	AddInfo(TEXT("Report: ") + DTHPoseTest::WriteReport(TEXT("matches_baseline.txt"), Lines));

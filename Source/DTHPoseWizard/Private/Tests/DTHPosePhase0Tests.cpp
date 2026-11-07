@@ -11,7 +11,7 @@
 #include "DTHPoseWriter.h"
 #include "DTHRetarget.h"
 #include "Engine/SkeletalMesh.h"
-#include "Probe/DTHBodyHarness.h"
+#include "DTHBodyHarness.h"
 
 namespace
 {

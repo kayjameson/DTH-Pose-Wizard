@@ -12,7 +12,7 @@
 #include "DTHPoseWriter.h"
 #include "DTHRetarget.h"
 #include "Misc/Paths.h"
-#include "Probe/DTHBodyHarness.h"
+#include "DTHBodyHarness.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "DTHPoseSamples.h"

@@ -1,4 +1,4 @@
-#include "Probe/DTHBodyHarness.h"
+#include "DTHBodyHarness.h"
 
 #include "Animation/AnimInstance.h"
 #include "Components/SceneCaptureComponent2D.h"
@@ -9,7 +9,7 @@
 #include "HAL/FileManager.h"
 #include "ImageUtils.h"
 #include "Misc/Paths.h"
-#include "Probe/DTHBonePoseDriverInstance.h"
+#include "DTHBonePoseDriverInstance.h"
 #include "RenderingThread.h"
 #include "ShaderCompiler.h"
 #include "TextureResource.h"

@@ -25,7 +25,7 @@ struct FDTHBoneReadback
  * A DTH character in an off-screen preview world (never the level), driven by UDTHBonePoseDriverInstance, with DTH's
  * own post-process blueprint running after it, exactly as the DTH import sets it up.
  */
-class FDTHBodyHarness
+class DTHPOSECORE_API FDTHBodyHarness
 {
 public:
 	FDTHBodyHarness();
