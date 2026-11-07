@@ -30,6 +30,7 @@ public class DTHPoseWizard : ModuleRules
 			"AssetTools",
 			"AssetRegistry",
 			"RenderCore",
+			"DTHPoseCore",
 			"DTHRigKeying",
 			"ControlRig",
 			"RigVM",

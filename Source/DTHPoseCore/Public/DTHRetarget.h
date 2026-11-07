@@ -23,11 +23,11 @@ namespace DTHRetarget
 	};
 
 	/** The track value as the mesh evaluates it. */
-	FTransform Forward(const FBone& Bone, const FTransform& Track);
+	DTHPOSECORE_API FTransform Forward(const FBone& Bone, const FTransform& Track);
 
 	/** The track value to author so that the mesh evaluates Wanted. Skeleton mode cannot carry a translation. */
-	FTransform Inverse(const FBone& Bone, const FTransform& Wanted);
+	DTHPOSECORE_API FTransform Inverse(const FBone& Bone, const FTransform& Wanted);
 
 	/** Per mesh bone index; bones missing from the skeleton keep mode Animation and the mesh reference for both. */
-	TArray<FBone> Gather(const USkeleton& Skeleton, const USkeletalMesh& Mesh);
+	DTHPOSECORE_API TArray<FBone> Gather(const USkeleton& Skeleton, const USkeletalMesh& Mesh);
 }

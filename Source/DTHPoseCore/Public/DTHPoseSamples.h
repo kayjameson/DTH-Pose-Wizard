@@ -31,7 +31,7 @@ struct FDTHDazPose
  * DTH_PoseSamples.json, written by Resources/Daz/DTH_SamplePoses.dsa. Load reads the rest state, the ROM and the skipped
  * files; the poses, which can run to hundreds of thousands, are only read by ReadPoses, one samples file at a time.
  */
-struct FDTHPoseSamples
+struct DTHPOSECORE_API FDTHPoseSamples
 {
 	FString DazVersion, SampledAt;
 	FDTHDazState Rest;

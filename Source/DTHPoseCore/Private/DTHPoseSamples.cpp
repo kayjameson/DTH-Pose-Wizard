@@ -1,4 +1,4 @@
-#include "Library/DTHPoseSamples.h"
+#include "DTHPoseSamples.h"
 
 #include "Dom/JsonObject.h"
 #include "Misc/FileHelper.h"

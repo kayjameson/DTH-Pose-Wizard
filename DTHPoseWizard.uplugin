@@ -17,6 +17,14 @@
 	"Installed": false,
 	"Modules": [
 		{
+			"Name": "DTHPoseCore",
+			"Type": "Editor",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		},
+		{
 			"Name": "DTHRigKeying",
 			"Type": "Editor",
 			"LoadingPhase": "Default",

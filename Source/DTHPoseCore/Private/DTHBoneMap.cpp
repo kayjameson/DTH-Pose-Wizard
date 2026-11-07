@@ -1,4 +1,4 @@
-#include "Build/DTHBoneMap.h"
+#include "DTHBoneMap.h"
 
 namespace DTHBoneMap
 {

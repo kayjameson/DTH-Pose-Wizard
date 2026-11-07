@@ -3,7 +3,7 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "DTHPoseLog.h"
 #include "Library/DTHPoseLibrary.h"
-#include "Library/DTHPoseSamples.h"
+#include "DTHPoseSamples.h"
 #include "Misc/PackageName.h"
 #include "Misc/ScopedSlowTask.h"
 #include "UObject/Package.h"

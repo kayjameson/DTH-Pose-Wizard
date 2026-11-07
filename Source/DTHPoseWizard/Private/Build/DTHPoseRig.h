@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Build/DTHPoseSolve.h"
+#include "DTHPoseSolve.h"
 
 class UAnimSequence;
 class ULevelSequence;

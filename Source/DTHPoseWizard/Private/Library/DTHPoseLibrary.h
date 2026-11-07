@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
-#include "Library/DTHPoseSamples.h"
+#include "DTHPoseSamples.h"
 #include "Serialization/BulkData.h"
 #include "DTHPoseLibrary.generated.h"
 

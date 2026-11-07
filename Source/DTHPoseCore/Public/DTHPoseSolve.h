@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Library/DTHPoseSamples.h"
+#include "DTHPoseSamples.h"
 
 struct FReferenceSkeleton;
 
@@ -13,7 +13,7 @@ struct FReferenceSkeleton;
 namespace DTHPoseSolve
 {
 	/** A signed axis permutation from Daz world space to UE component space, plus an offset (cm). */
-	struct FAxes
+	struct DTHPOSECORE_API FAxes
 	{
 		/** UE = M * Daz, column vectors. */
 		double M[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
@@ -56,27 +56,27 @@ namespace DTHPoseSolve
 	};
 
 	/** The reference pose in component space. */
-	TArray<FTransform> ComponentSpace(const FReferenceSkeleton& Ref, TFunctionRef<FTransform(int32)> Local);
+	DTHPOSECORE_API TArray<FTransform> ComponentSpace(const FReferenceSkeleton& Ref, TFunctionRef<FTransform(int32)> Local);
 
 	/** Bones the solve leaves alone: IK bones (plan section 5) and the root. */
-	bool IsSkipped(FName UEBone);
+	DTHPOSECORE_API bool IsSkipped(FName UEBone);
 
 	/** A UE joint and a Daz joint closer than this are the same joint. */
 	constexpr double InlierCm = 0.5;
 
 	/** Tries all 48 signed axis permutations and keeps the one that puts the Daz joints on the UE joints. */
-	FAxes FitAxes(const FDTHDazState& DazRest, const FReferenceSkeleton& Ref, const TArray<FTransform>& MeshRest,
+	DTHPOSECORE_API FAxes FitAxes(const FDTHDazState& DazRest, const FReferenceSkeleton& Ref, const TArray<FTransform>& MeshRest,
 		double MatchCm = InlierCm);
 
 	/** Daz world space to UE component space for every DTH Genesis 9 character: ue = (daz.x, daz.z, daz.y), cm (measured,
 	 * DTH.Pose.P0.DazMapping: scale 1.00016, offset under 0.02 cm). */
-	FAxes DazToUE();
+	DTHPOSECORE_API FAxes DazToUE();
 
 	/** The shipped mapping (DTHBoneMap) on this skeleton; bones the table names that the skeleton lacks are left out. */
-	FMapping MapFromTable(const FReferenceSkeleton& Ref);
+	DTHPOSECORE_API FMapping MapFromTable(const FReferenceSkeleton& Ref);
 
 	/** Maps each UE bone to the Daz bone nearest its joint, within MaxCm. */
-	FMapping MapBones(const FAxes& Axes, const FDTHDazState& DazRest, const FReferenceSkeleton& Ref,
+	DTHPOSECORE_API FMapping MapBones(const FAxes& Axes, const FDTHDazState& DazRest, const FReferenceSkeleton& Ref,
 		const TArray<FTransform>& MeshRest, double MaxCm);
 
 	/**
@@ -84,6 +84,6 @@ namespace DTHPoseSolve
 	 * world rotation change; their joints move as points fixed to the frame of the Daz bone their Daz bone hangs from, and
 	 * the hip by its translation. Unmapped bones follow their parent at their reference local transform.
 	 */
-	TMap<FName, FTransform> Solve(const FRig& Rig, const FReferenceSkeleton& Ref, const FDTHDazState& Pose,
+	DTHPOSECORE_API TMap<FName, FTransform> Solve(const FRig& Rig, const FReferenceSkeleton& Ref, const FDTHDazState& Pose,
 		TArray<FTransform>* OutComponent = nullptr);
 }

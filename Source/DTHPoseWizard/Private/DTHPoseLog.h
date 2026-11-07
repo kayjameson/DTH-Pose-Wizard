@@ -1,5 +1,4 @@
 #pragma once
 
-#include "Logging/LogMacros.h"
-
-DECLARE_LOG_CATEGORY_EXTERN(LogDTHPose, Log, All);
+// LogDTHPose lives in DTHPoseCore, so the core and the wizard log to one category.
+#include "DTHPoseCoreLog.h"

@@ -1,4 +1,4 @@
-#include "Build/DTHPoseWriter.h"
+#include "DTHPoseWriter.h"
 
 #include "Animation/AnimData/IAnimationDataController.h"
 #include "Animation/AnimData/IAnimationDataModel.h"
@@ -6,7 +6,7 @@
 #include "Animation/AnimSequence.h"
 #include "Animation/Skeleton.h"
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "DTHPoseLog.h"
+#include "DTHPoseCoreLog.h"
 #include "Misc/PackageName.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"

@@ -13,5 +13,5 @@ namespace DTHBoneMap
 		bool bJoint;
 	};
 
-	const TArray<FEntry>& Table();
+	DTHPOSECORE_API const TArray<FEntry>& Table();
 }

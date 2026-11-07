@@ -4,7 +4,7 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-#include "Build/DTHRetarget.h"
+#include "DTHRetarget.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDTHPoseUnitRetarget, "DTH.Pose.Unit.RetargetInverse",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

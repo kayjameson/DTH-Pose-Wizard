@@ -8,8 +8,8 @@
 #include "Animation/AnimData/IAnimationDataModel.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/Skeleton.h"
-#include "Build/DTHPoseWriter.h"
-#include "Build/DTHRetarget.h"
+#include "DTHPoseWriter.h"
+#include "DTHRetarget.h"
 #include "Engine/SkeletalMesh.h"
 #include "Probe/DTHBodyHarness.h"
 

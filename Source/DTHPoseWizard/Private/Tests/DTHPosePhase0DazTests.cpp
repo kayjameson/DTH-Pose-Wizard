@@ -8,14 +8,14 @@
 #include "Animation/AnimData/IAnimationDataModel.h"
 #include "Animation/AnimSequence.h"
 #include "Build/DTHPoseRig.h"
-#include "Build/DTHPoseSolve.h"
-#include "Build/DTHPoseWriter.h"
-#include "Build/DTHRetarget.h"
+#include "DTHPoseSolve.h"
+#include "DTHPoseWriter.h"
+#include "DTHRetarget.h"
 #include "Misc/Paths.h"
 #include "Probe/DTHBodyHarness.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
-#include "Library/DTHPoseSamples.h"
+#include "DTHPoseSamples.h"
 #include "Settings/DTHPoseSettings.h"
 
 namespace

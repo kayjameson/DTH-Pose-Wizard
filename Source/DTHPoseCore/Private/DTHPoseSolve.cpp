@@ -1,6 +1,6 @@
-#include "Build/DTHPoseSolve.h"
+#include "DTHPoseSolve.h"
 
-#include "Build/DTHBoneMap.h"
+#include "DTHBoneMap.h"
 #include "ReferenceSkeleton.h"
 
 namespace

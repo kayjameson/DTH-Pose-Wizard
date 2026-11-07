@@ -14,8 +14,6 @@
 
 #define LOCTEXT_NAMESPACE "DTHPoseWizard"
 
-DEFINE_LOG_CATEGORY(LogDTHPose);
-
 const FName FDTHPoseWizardModule::WizardTabName(TEXT("DTHPoseWizard"));
 
 void FDTHPoseWizardModule::StartupModule()
