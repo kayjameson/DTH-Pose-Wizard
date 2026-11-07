@@ -213,15 +213,32 @@ bool FDTHPoseP1LibrarySweep::RunTest(const FString&)
 		const int32 Pelvis = Out.Find(TEXT("pelvis"));
 		bool bOk = Out.Component.Num() > 0 && Pelvis != INDEX_NONE;
 		double Lowest = TNumericLimits<double>::Max();
-		for (const FTransform& T : Out.Component)
+		double FarCm = 0.0;
+		FName FarBone;
+		for (int32 B = 0; B < Out.Component.Num(); ++B)
 		{
-			if (!T.IsValid() || (bOk && FVector::Dist(T.GetTranslation(), Out.Component[Pelvis].GetTranslation()) > 150.0)) bOk = false;
+			const FTransform& T = Out.Component[B];
+			if (!T.IsValid()) bOk = false;
+			// Only the body (the pelvis and below it): the root and the Mannequin's helpers on it (IK bones, interaction)
+			// stay where they are, so a pose that lifts the body (a balance beam, a pommel horse) puts the pelvis far from
+			// them without anything being wrong.
+			bool bBody = false;
+			for (int32 Up = B; Up != INDEX_NONE && !bBody; Up = Out.Parents[Up]) bBody = Up == Pelvis;
+			if (!bBody) continue;
+			const double Far = Pelvis != INDEX_NONE ? FVector::Dist(T.GetTranslation(), Out.Component[Pelvis].GetTranslation()) : 0.0;
+			if (Far > FarCm) { FarCm = Far; FarBone = Out.Bones[B]; }
+			if (bOk && Far > 150.0) bOk = false;
 			Lowest = FMath::Min(Lowest, T.GetTranslation().Z);
 		}
 		Lines.Add(FString::Printf(TEXT("%s\t%d\t%d\t%.2f\t%.2f\t%.3f"), *P.Label, P.bPartial ? 1 : 0, P.Missing.Num(),
 			Pelvis != INDEX_NONE ? Out.Component[Pelvis].GetTranslation().Z : 0.0, Lowest, Ms));
 		++Done;
-		if (!bOk) { ++Bad; AddError(FString::Printf(TEXT("%s: the solve gives bones that are not finite or leave the body."), *P.Label)); }
+		if (!bOk)
+		{
+			++Bad;
+			AddError(FString::Printf(TEXT("%s: the solve gives bones that are not finite or leave the body (farthest from the pelvis: %s, %.1f cm)."),
+				*P.Label, *FarBone.ToString(), FarCm));
+		}
 	}
 	AddInfo(FString::Printf(TEXT("%d poses solved and played, %d broken; %.3f ms per pose for the solve. Report: %s"), Done, Bad,
 		Done ? SolveMs / Done : 0.0, *DTHPoseTest::WriteReport(TEXT("../phase1/library_sweep.tsv"), Lines)));
