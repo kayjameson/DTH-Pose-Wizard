@@ -12,6 +12,7 @@ public class DTHPoseCore : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"DTHFaceCore",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]

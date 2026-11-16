@@ -18,9 +18,16 @@
 //
 // Positions are Daz world space (cm, Y up), rotations Daz world-space quaternions [x, y, z, w]. The plugin converts.
 //
+// The face: a preset that sets a face (eyes, lids, jaw, lips, tongue, brows: FACS morphs and the bones under the head,
+// the Mouth figure's tongue, the Eyes) gets its face sampled on its own: the preset's face values are put on the figure
+// at rest, without the body, and the head, Mouth and Eyes are measured as the Expression Wizard measures an expression
+// (face.json, poses/geo_*.txt). The plugin fits DTH's face curves to that shape. The "face" step adds the faces to
+// samples taken without them, reloading only the presets that set a face.
+//
 // Run it from Daz Studio (File > Open, or double-click), or through a script server with `var args = {...}` defined
 // first. Without args it does every step with the defaults below.
-//   args.step      "all" (default) | "prepare" | "sample" | "rom" | "finish"
+//   args.step      "all" (default) | "prepare" | "sample" | "rom" | "finish" | "face" (faces for samples taken without them)
+//   args.face      false: leave the faces out (default true)
 //   args.out       output folder (default: Documents/DTH Pose Wizard)
 //   args.fresh     true: start over even if an unfinished run is there to resume ("all")
 //   args.folders   extra content-library folders to sample as well (all subfolders), e.g. ["My Stuff/Poses"]
@@ -44,6 +51,12 @@
 	var SKIP = {};
 	for (var s = 0; A.skip && s < A.skip.length; s++) SKIP[A.skip[s]] = true;
 	var GEOMETRY = !!A.geometry;
+	var FACE_ON = A.face !== false;
+	// The face measured for a preset's face: the head (every vertex above HEAD_DEPTH cm below the top of the figure),
+	// the Mouth figure (teeth, tongue) and the Eyes figure (the gaze). Displacements are written in GEO_UNIT cm integers.
+	var FACE_FIGURES = ["Genesis9", "Genesis9Mouth", "Genesis9Eyes"];
+	var HEAD_DEPTH = 26.0;
+	var GEO_UNIT = 1e-4;
 	var FIGURE_FILE = A.figure || "People/Genesis 9/Genesis 9.duf";
 	// DazToHue's Genesis 9 ROM, the body preset the DTH guide loads on the figure; its frames give the JCM poses
 	var ROM_DIR = "DazToHue/Poses/Genesis 9/DQS";
@@ -78,6 +91,7 @@
 	function listFile(c) { return WORK + "/list_" + pad(c) + ".json"; }
 	// Relative to OUT: DTH_PoseSamples.json lists the chunks this way.
 	function chunkName(c) { return "poses/poses_" + pad(c) + ".json"; }
+	function geoName(c) { return "poses/geo_" + pad(c) + ".txt"; }
 
 	function readState() { var st = readJson(WORK + "/state.json"); return st && st.version == 2 ? st : null; }
 	function writeState(st) { return writeJson(WORK + "/state.json", st); }
@@ -143,6 +157,147 @@
 		var file = dir + "/" + name.replace(/[^A-Za-z0-9_\-]+/g, "_") + ".txt";
 		writeText(file, lines.join("\n"));
 		return file;
+	}
+
+	// ---- The face ----------------------------------------------------------------------------------------------------
+	function figures() {
+		var out = [];
+		for (var i = 0; i < Scene.getNumSkeletons(); i++) {
+			var s = Scene.getSkeleton(i);
+			if (s.getName().indexOf("Genesis9") == 0) out.push(s);
+		}
+		return out;
+	}
+	function figureByName(name) { var f = figures(); for (var i = 0; i < f.length; i++) if (f[i].getName() == name) return f[i]; return null; }
+	// Current (morphed and posed) positions of a figure's base mesh.
+	function positions(fig) {
+		var obj = fig.getObject();
+		obj.forceCacheUpdate(fig, false);
+		return obj.getCachedGeom();
+	}
+	// The face region of each face figure: its vertices, the facets made only of them (to subdivide exactly as the DTH
+	// export does) and their rest positions. Taken on the figure at rest.
+	var FACE = null;
+	function faceRegion() {
+		var out = [];
+		for (var f = 0; f < FACE_FIGURES.length; f++) {
+			var fig = figureByName(FACE_FIGURES[f]);
+			if (!fig) continue;
+			var geo = positions(fig), mesh = fig.getObject().getCurrentShape().getGeometry();
+			var n = geo.getNumVertices(), top = -1e9, keep = [], local = {};
+			for (var v = 0; v < n; v++) top = Math.max(top, geo.getVertex(v).y);
+			for (var v2 = 0; v2 < n; v2++) {
+				if (f > 0 || geo.getVertex(v2).y > top - HEAD_DEPTH) { local[v2] = keep.length; keep.push(v2); }
+			}
+			var facets = [];
+			for (var k = 0; k < mesh.getNumFacets(); k++) {
+				var fc = mesh.getFacet(k), ids = [fc.vertIdx1, fc.vertIdx2, fc.vertIdx3, fc.vertIdx4], ok = true, row = [];
+				for (var c = 0; c < 4; c++) {
+					if (ids[c] < 0) { row.push(-1); continue; }
+					if (local[ids[c]] === undefined) { ok = false; break; }
+					row.push(local[ids[c]]);
+				}
+				if (ok) facets.push(row);
+			}
+			var rest = [];
+			for (var r = 0; r < keep.length; r++) { var p = geo.getVertex(keep[r]); rest.push(p.x, p.y, p.z); }
+			out.push({name: FACE_FIGURES[f], vertices: keep, facets: facets, rest: rest});
+		}
+		return out;
+	}
+	// One line per face figure: "<preset index in its chunk> <figure index> <count> (<vertex> <dx> <dy> <dz>)*" in GEO_UNIT
+	// integers, for the face vertices that moved from rest.
+	function faceGeometryLines(index) {
+		if (!FACE) FACE = readJson(OUT + "/face.json").figures;
+		var lines = [];
+		for (var f = 0; f < FACE.length; f++) {
+			var fig = figureByName(FACE[f].name), geo = positions(fig), parts = [], count = 0, R = FACE[f].rest;
+			for (var i = 0; i < FACE[f].vertices.length; i++) {
+				var p = geo.getVertex(FACE[f].vertices[i]);
+				var dx = Math.round((p.x - R[3 * i]) / GEO_UNIT), dy = Math.round((p.y - R[3 * i + 1]) / GEO_UNIT), dz = Math.round((p.z - R[3 * i + 2]) / GEO_UNIT);
+				if (dx || dy || dz) { parts.push(i, dx, dy, dz); ++count; }
+			}
+			lines.push(index + " " + f + " " + count + (count ? " " + parts.join(" ") : ""));
+		}
+		return lines;
+	}
+	// The face's properties, with their values at rest: the figures' own properties (a pack's expression alias lives there)
+	// but their placement in the scene, every morph but the body's own (body_), and every property of the main figure's
+	// bones under the head and of the Mouth's and Eyes' bones. Looked up again when a preset loads a morph on demand.
+	var FACEPROPS = null, FACEMODS = "";
+	// How many modifiers each figure has: a preset can load a morph on demand (a pack's expression morph), and the face's
+	// properties are looked up again when it does.
+	function modifierCounts() {
+		var figs = figures(), out = [];
+		for (var s = 0; s < figs.length; s++) out.push(figs[s].getObject() ? figs[s].getObject().getNumModifiers() : 0);
+		return out.join(",");
+	}
+	function faceProps() {
+		var counts = modifierCounts();
+		if (FACEPROPS && counts == FACEMODS) return FACEPROPS;
+		// a morph loaded since the last look-up rests at 0 (its value before it was loaded); the others keep their rest
+		var known = FACEPROPS || [];
+		FACEPROPS = [];
+		FACEMODS = counts;
+		function restOf(p) { for (var k = 0; k < known.length; k++) if (known[k][0] == p) return known[k][1]; return null; }
+		var first = !known.length;
+		function add(p, isMorph) {
+			if (!p || !p.inherits("DzNumericProperty")) return;
+			var r = first ? null : restOf(p);
+			FACEPROPS.push([p, r === null ? (first || !isMorph ? p.getRawValue() : 0) : r]);
+		}
+		var figs = figures();
+		for (var s = 0; s < figs.length; s++) {
+			var fig = figs[s], main = fig.getName() == "Genesis9", bones = fig.getAllBones(), head = null, i, n;
+			// the figure's own properties (a pack's expression alias lives here), not its placement in the scene
+			var place = [fig.getXPosControl(), fig.getYPosControl(), fig.getZPosControl(), fig.getXRotControl(), fig.getYRotControl(),
+				fig.getZRotControl(), fig.getScaleControl(), fig.getXScaleControl(), fig.getYScaleControl(), fig.getZScaleControl()];
+			for (n = 0; n < fig.getNumProperties(); n++) {
+				var fp = fig.getProperty(n), isPlace = false;
+				for (var pl = 0; pl < place.length; pl++) if (place[pl] == fp) isPlace = true;
+				// a body pose control (body_ctrl_*) is a figure property too: not the face
+				if (!isPlace && fp.getName().indexOf("body_") != 0) add(fp, false);
+			}
+			// every property of the bones under the head (all bones of the Mouth and Eyes)
+			for (i = 0; i < bones.length; i++) if (bones[i].getName() == "head") head = bones[i];
+			for (i = 0; i < bones.length; i++) {
+				var b = bones[i], under = !main;
+				if (main && head) { var q = b.getNodeParent(); while (q && q != head) q = q.getNodeParent(); under = q == head; }
+				if (!under) continue;
+				for (n = 0; n < b.getNumProperties(); n++) add(b.getProperty(n), false);
+			}
+			// any morph but the body's own (body_: pose controls, correctives); a pack's expression morph drives FACS
+			var obj = fig.getObject();
+			for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
+				var mod = obj.getModifier(m);
+				if (!mod || !mod.inherits("DzMorph") || mod.getName().indexOf("body_") == 0) continue;
+				add(mod.getValueControl(), true);
+			}
+		}
+		return FACEPROPS;
+	}
+	// With a preset applied: its face values (the face properties it set away from rest), or [] when it sets no face.
+	function presetFace() {
+		var fp = faceProps(), out = [];
+		for (var i = 0; i < fp.length; i++) { var v = fp[i][0].getRawValue(); if (v != fp[i][1]) out.push([fp[i][0], v]); }
+		return out;
+	}
+	// The preset's face on the figure at rest (the body left out): its face values set, the face measured, and the figure
+	// put back. Lines for the chunk's geometry file, or [] when the preset sets no face.
+	function sampleFace(face, index, snap) {
+		if (!face.length) return [];
+		restore(snap);
+		restFace();
+		for (var i = 0; i < face.length; i++) face[i][0].setValue(face[i][1]);
+		var lines = faceGeometryLines(index);
+		restore(snap);
+		restFace();
+		return lines;
+	}
+	// The face properties back at rest, the morphs a preset loaded on demand included (the snapshot does not have them).
+	function restFace() {
+		var fp = faceProps();
+		for (var i = 0; i < fp.length; i++) if (fp[i][0].getRawValue() != fp[i][1]) fp[i][0].setValue(fp[i][1]);
 	}
 
 	// User values of every bone channel, morph and figure pose control, to put the figure back after a preset.
@@ -264,7 +419,8 @@
 	// Files an earlier run (of this version or the one before) left in OUT, cleared before a fresh run.
 	function clearRun() {
 		var dirs = [OUT, WORK, OUT + "/poses"];
-		var patterns = [/^samples_\d+\.json$/, /^presets\.json$/, /^progress\.txt$/, /^rest\.json$/, /^list_\d+\.json$/, /^state\.json$/, /^poses_\d+\.json$/];
+		var patterns = [/^samples_\d+\.json$/, /^presets\.json$/, /^progress\.txt$/, /^rest\.json$/, /^list_\d+\.json$/, /^state\.json$/, /^poses_\d+\.json$/,
+			/^geo_\d+\.txt$/, /^face\.json$/];
 		for (var d = 0; d < dirs.length; d++) {
 			if (!exists(dirs[d])) continue;
 			var files = new DzDir(dirs[d]).entryList(["*.json", "*.txt"], DzDir.Files, DzDir.Name);
@@ -273,15 +429,39 @@
 		}
 	}
 
+	// Base Genesis 9 as Daz ships it: a product that switches its own morph on for every Genesis 9 (a character's HD
+	// details, for one) makes the figure something else, and its face no longer lines up with a base DTH export. Every
+	// morph that is on but is not one of Daz's own Genesis 9 morphs (facs_, head_, body_) is set to 0, and named.
+	function baseOnly() {
+		var off = [];
+		for (var s = 0; s < Scene.getNumSkeletons(); s++) {
+			var fig = Scene.getSkeleton(s), obj = fig.getObject();
+			if (fig.getName().indexOf("Genesis9") != 0) continue;
+			for (var m = 0; obj && m < obj.getNumModifiers(); m++) {
+				var mod = obj.getModifier(m);
+				if (!mod || !mod.inherits("DzMorph")) continue;
+				var name = mod.getName(), vc = mod.getValueControl();
+				if (name.indexOf("facs_") == 0 || name.indexOf("head_") == 0 || name.indexOf("body_") == 0) continue;
+				if (Math.abs(vc.getRawValue()) < 1e-6) continue;
+				vc.setValue(0);
+				off.push(fig.getName() + " " + name);
+			}
+		}
+		if (off.length) note("Set to 0 on the base figure (a product switches them on for every Genesis 9): " + off.join(", ") + ".");
+	}
+
 	// A fresh base Genesis 9 in an empty scene.
 	function loadFigure() {
 		if (Scene.needsSave()) { result.error = "The open scene has unsaved changes. Save or close it, then run this again."; return false; }
 		Scene.clear();
 		REFS = null;
+		FACEPROPS = null;
+		FACEMODS = "";
 		var fig = contentPath(FIGURE_FILE);
 		if (!fig) { result.error = "Genesis 9 is not installed (" + FIGURE_FILE + ")."; return false; }
 		App.getContentMgr().openFile(fig, true);
 		if (!mainFigure()) { result.error = "Loading Genesis 9 did not give a Genesis9 figure."; return false; }
+		if (!A.figure) baseOnly();
 		Scene.setTime(0);
 		return true;
 	}
@@ -299,6 +479,7 @@
 		var rest = sample();
 		rest.geometry = writeGeometry("rest");
 		writeJson(WORK + "/rest.json", rest);
+		if (FACE_ON) { FACE = faceRegion(); writeJson(OUT + "/face.json", {unit: GEO_UNIT, figures: FACE}); }
 		writeState({version: 2, startedAt: new Date().toISOString(), presets: scan.count, chunks: scan.chunks, skipped: scan.skipped.length,
 			suspects: {}, crashed: {}, rom: false, complete: false});
 		note("Genesis 9 loaded; " + scan.count + " pose presets found, " + scan.skipped.length + " files or folders skipped.");
@@ -320,7 +501,8 @@
 	// Samples one chunk of the list into poses/poses_<chunk>.json. False if cancelled (nothing is written then).
 	function sampleChunk(st, c, snap, counts) {
 		var list = readJson(listFile(c)) || [];
-		var main = mainFigure(), out = [];
+		var main = mainFigure(), out = [], geoLines = [];
+		if (FACE_ON) faceProps();
 		Scene.setTime(0);
 		for (var i = 0; i < list.length; i++) {
 			var p = list[i];
@@ -343,14 +525,75 @@
 			}
 			var s = ok ? sample() : null;
 			if (s) s.geometry = writeGeometry("preset_" + (c * CHUNK + i) + "_" + p.label);
+			if (s && FACE_ON) geoLines = geoLines.concat(sampleFace(presetFace(), i, snap));
 			restore(snap);
+			if (FACE_ON) restFace();
 			var left = unrestored(snap);
 			if (left) counts.notRestored++;
 			if (!ok) counts.notLoaded++;
 			out.push({pack: p.pack, label: p.label, file: p.file, icon: p.icon, type: p.type, loaded: ok, reason: why, state: s, notRestored: left});
 		}
+		// the face geometry first: the samples file marks the chunk done
+		if (FACE_ON) writeText(OUT + "/" + geoName(c), geoLines.join("\n"));
 		writeJson(OUT + "/" + chunkName(c), out);
 		removeFile(WORK + "/progress.txt");
+		return true;
+	}
+
+	// The "face" step: faces for samples taken without them. Every chunk without its face geometry: each loaded preset
+	// whose sampled state sets a face is loaded again and its face measured. Resumes chunk by chunk. False if cancelled.
+	function faceBones() {
+		var bones = mainFigure().getAllBones(), head = null, out = {}, i;
+		for (i = 0; i < bones.length; i++) if (bones[i].getName() == "head") head = bones[i];
+		for (i = 0; i < bones.length; i++) { var q = bones[i].getNodeParent(); while (q && q != head) q = q.getNodeParent(); if (q == head) out[bones[i].getName()] = true; }
+		return out;
+	}
+	function setsFace(state, rest, under) {
+		if (!state) return false;
+		var m = state.morphs || {}, rm = rest.morphs || {}, k;
+		for (k in m) if ((k.indexOf("facs_") == 0 || k.indexOf("head_") == 0) && Math.abs(m[k] - (rm[k] || 0)) > 1e-4) return true;
+		for (k in rm) if ((k.indexOf("facs_") == 0 || k.indexOf("head_") == 0) && m[k] === undefined && Math.abs(rm[k]) > 1e-4) return true;
+		var b = state.bones || {}, rb = rest.bones || {};
+		for (k in under) {
+			if (!b[k] || !rb[k]) continue;
+			for (var c = 0; c < 6; c++) if (Math.abs((b[k].local[c] || 0) - (rb[k].local[c] || 0)) > 1e-3) return true;
+		}
+		return false;
+	}
+	function sampleFaces(st) {
+		if (!exists(OUT + "/face.json")) { FACE = faceRegion(); writeJson(OUT + "/face.json", {unit: GEO_UNIT, figures: FACE}); }
+		var rest = readJson(WORK + "/rest.json"), under = faceBones(), snap = snapshot(), todo = [], total = 0, faces = 0;
+		for (var c = 0; c < st.chunks; c++) if (chunkDone(c) && !exists(OUT + "/" + geoName(c))) todo.push(c);
+		if (!todo.length) return true;
+		faceProps();
+		var main = mainFigure();
+		startProgress(TITLE + ": sampling the faces of " + todo.length + " chunks of presets", todo.length * CHUNK, true, true);
+		try {
+			for (var t = 0; t < todo.length; t++) {
+				var poses = readJson(OUT + "/" + chunkName(todo[t])) || [], lines = [];
+				for (var i = 0; i < poses.length; i++) {
+					stepProgress(1);
+					if (progressIsCancelled()) { result.error = "Cancelled. Run the face step again to carry on."; return false; }
+					var p = poses[i];
+					if (!p.loaded || !setsFace(p.state, rest, under)) continue;
+					Scene.setTime(0);
+					Scene.selectAllNodes(false); main.select(true); Scene.setPrimarySelection(main);
+					var nodes = Scene.getNumNodes();
+					if (!App.getContentMgr().openFile(p.file, true) || Scene.getNumNodes() != nodes) {
+						for (var n = Scene.getNumNodes() - 1; n >= nodes; n--) Scene.removeNode(Scene.getNode(n));
+						restore(snap);
+						continue;
+					}
+					lines = lines.concat(sampleFace(presetFace(), i, snap));
+					restore(snap);
+					restFace();
+					faces++;
+				}
+				writeText(OUT + "/" + geoName(todo[t]), lines.join("\n"));
+				total += poses.length;
+			}
+		} finally { finishProgress(); }
+		note("Faces sampled for " + faces + " of " + total + " presets (the others leave the face at rest).");
 		return true;
 	}
 
@@ -412,15 +655,17 @@
 
 	// DTH_PoseSamples.json: the rest state and the list of samples files, never the samples themselves.
 	function finish(st) {
-		var chunks = [];
+		var chunks = [], geometry = [], withFace = exists(OUT + "/face.json");
 		for (var c = 0; c < st.chunks; c++) {
 			if (!chunkDone(c)) { result.error = "Presets " + (c * CHUNK) + " to " + (Math.min(st.presets, (c + 1) * CHUNK) - 1) + " were not sampled."; return false; }
 			chunks.push(chunkName(c));
+			geometry.push(exists(OUT + "/" + geoName(c)) ? geoName(c) : "");
 		}
-		var doc = {format: "DTH Pose Samples", version: 2, sampledAt: new Date().toISOString(),
+		var doc = {format: "DTH Pose Samples", version: 3, sampledAt: new Date().toISOString(),
 			dazVersion: App.longVersionString, figure: "Genesis 9", units: "cm, Y up, Daz world space",
 			extraFolders: EXTRA_FOLDERS, files: FILES, presets: st.presets,
-			rest: readJson(WORK + "/rest.json"), rom: st.rom ? "rom.json" : "", chunks: chunks, skipped: "skipped.json"};
+			rest: readJson(WORK + "/rest.json"), rom: st.rom ? "rom.json" : "", chunks: chunks, skipped: "skipped.json",
+			face: withFace ? "face.json" : "", faceGeometry: withFace ? geometry : []};
 		writeJson(OUT + "/DTH_PoseSamples.json", doc);
 		st.complete = true;
 		writeState(st);
@@ -479,6 +724,11 @@
 			return true;
 		}
 		if (STEP == "rom") return sampleRom(st);
+		if (STEP == "face") {
+			if (!loadFigure()) return false;
+			if (!sampleFaces(st)) return false;
+			return finish(st);
+		}
 		if (STEP == "finish") return finish(st);
 		result.error = "Unknown step " + STEP + ".";
 		return false;

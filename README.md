@@ -29,6 +29,13 @@ Daz Studio (File > Open). It:
 
 Nothing is saved in Daz. Presets for other figure generations are listed and skipped.
 
+**Faces.** A preset that sets a face (eyes, lids, jaw, lips, tongue, brows) gets its face sampled on its own: its face
+values on the figure at rest, without the body, measured as the Expression Wizard measures an expression (`face.json`,
+`poses/geo_*.txt`). Samples taken before 0.4.0 have no faces: run the script with `step: "face"` to add them (it
+reloads only the presets that set a face; about 10 minutes for 8,500 presets). A product that switches its own morph
+on for every Genesis 9 (some characters' HD details) is set to 0 first, and named in the run's messages: the library is
+sampled on base Genesis 9.
+
 It is made for libraries of hundreds of thousands of presets:
 - It reads only the start of each preset file to tell what it is.
 - It writes the samples 100 presets to a file (`poses/`). `DTH_PoseSamples.json` only lists those files.
@@ -42,7 +49,8 @@ From a script server, pass arguments as the script's argument object:
 
 | Argument | Meaning |
 |---|---|
-| `step` | `all` (default), `prepare`, `sample`, `rom`, `finish` |
+| `step` | `all` (default), `prepare`, `sample`, `rom`, `finish`, `face` (faces for samples taken without them) |
+| `face` | `false`: leave the faces out |
 | `out` | output folder |
 | `folders` | extra content folders to sample, e.g. `["My Stuff/Poses"]` |
 | `fresh` | `true`: start over instead of carrying on an unfinished run |
@@ -54,13 +62,19 @@ From a script server, pass arguments as the script's argument object:
 
 ## 2. Build the library
 
-Set **Daz Samples File** (and, if you like, **Pose Library**) on the Settings page. Then on **Build Library** press
-**Build Library**. The report lists:
+Set **Daz Samples File**, the **Character** (the presets' faces are fitted on it: a plain Genesis 9 exported through
+DazToHue, such as `G9_Base`, gives a 1:1 fit) and, if you like, **Pose Library** on the Settings page. Then on
+**Build Library** press **Build Library**. The report lists:
 - the poses;
 - which poses are partial (hands, feet: they are laid over a base pose);
 - presets that did not load, with the reason;
-- for each pose, any shapes a DTH character does not take from a body pose: face shapes (key those with the Expression
-  Wizard) and add-on shape morphs DTH's ROM does not carry.
+- the poses that set a face, and how closely it is reproduced: each face is fitted with the DTH Expression Wizard's
+  shape fit (shared module `DTHFaceCore`): face-board curves, DTH's morph curves, and the eyes, jaw and tongue turned
+  past DTH's face rig, which stops eye looks at 20 deg up or down where Daz presets go to 30. Measured on G9_Base
+  (2026-11-16, 40 face-setting presets spread over a library of 8,531): 37 within 1 mm in every face region (eyes,
+  lids, brows, lips, jaw, tongue); two have 9-14 of 759 brow points 1.0-1.5 mm off where Daz moves the brows 10 mm,
+  one has a single gum point 3.3 mm off;
+- add-on shape morphs DTH's ROM does not carry.
 
 Rebuilding from the same samples gives the same library. The build reads the samples one file at a time and can be
 cancelled; a cancelled build leaves the library as it was. The library asset keeps each pose's bones in blocks that
@@ -86,8 +100,9 @@ different proportions.
 
 ## Sequencer and expressions
 
-Add the sequence to the character's Animation track. A face sequence on a second section (or a MetaHuman face
-performance) layers over it: pose sequences carry bone tracks only, no curves.
+Add the sequence to the character's Animation track. A pose that sets no face carries bone tracks only, no curves, so
+a face sequence on a second section (or a MetaHuman face performance) layers over it untouched. A pose that sets a
+face carries it: face curves, and its face bones at rest turned by the fit (eyes, jaw, tongue).
 
 You can also key an expression straight into a pose sequence: pick the pose sequence in the DTH Expression Wizard's
 Key bar and key the expression on the same frame. The pose sets the body, the expression sets the face, and neither
@@ -114,8 +129,9 @@ What you see in the wizard is what the track plays, exactly:
   some expressions need both ends of one slider at once, such as nose wrinkle with nostril depress). Poses own the
   layer's bones, expressions its curves. The twist bones matter: DTH's post-process blends each one's own twist with
   its limb's, so the pose's twist shows on the character.
-- The eyes are left to the face board: Key Pose keys the layer's eye bones with no change, so the board's eye and aim
-  controls set the gaze, and a pose keyed over an older key clears an eye offset that key left.
+- The eyes: a pose without a face leaves them to the face board (Key Pose keys the layer's eye bones with no change, so
+  the board's eye and aim controls set the gaze). A pose with a face keys its face too: the face board's controls,
+  and the layer for its morph curves and its eye, jaw and tongue turns.
 - Measured on Milly (2026-10-28): every body bone within 0.02 deg of the Pose Wizard's preview, every one of the 154
   expression curves within 0.005 of the Expression Wizard's mix, on every frame, with poses and expressions keyed
   together and alone; and on the character as shown (after DTH's post-process) the twist bones of a keyed pose the

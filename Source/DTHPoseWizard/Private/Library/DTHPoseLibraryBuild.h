@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 
 class UDTHPoseLibrary;
+class USkeletalMesh;
 
 /** One line of a build or write report. */
 struct FDTHPoseMessage
@@ -19,6 +20,12 @@ namespace DTHPoseLibraryBuild
 	 * samples always give the same library.
 	 */
 	UDTHPoseLibrary* Build(const FString& SamplesFile, const FString& LibraryPath, TArray<FDTHPoseMessage>& OutReport);
+
+	/**
+	 * The same, with the presets' faces fitted on FaceCharacter (a DTH Genesis 9 character; by default the wizard's
+	 * Character setting). Without a character, or with samples that have no face, the poses carry no face.
+	 */
+	UDTHPoseLibrary* Build(const FString& SamplesFile, const FString& LibraryPath, USkeletalMesh* FaceCharacter, TArray<FDTHPoseMessage>& OutReport);
 
 	/** Why a morph a preset changes is not reproduced on a DTH character; empty when DTH reproduces it from the bones. */
 	FString MissingReason(const FString& Morph);

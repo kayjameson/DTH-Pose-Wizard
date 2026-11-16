@@ -6,8 +6,9 @@ class UAnimSequence;
 class USkeleton;
 
 /**
- * Writes pose sequences: non-additive, bone tracks only, no curves (plan section 5), so face sequences and
- * MetaHuman face performances layer over them untouched.
+ * Writes pose sequences: non-additive bone tracks, and the face curves the pose's own face needs (DTH's face-board and
+ * morph curves, only when the Daz preset or clip sets a face). A pose without a face has no curves, so face sequences
+ * and MetaHuman face performances layer over it untouched.
  */
 namespace DTHPoseWriter
 {
@@ -20,5 +21,6 @@ namespace DTHPoseWriter
 	 * clip's own frame rate (poses use the default).
 	 */
 	DTHPOSECORE_API UAnimSequence* Create(const FString& Folder, const FString& Name, USkeleton* Skeleton,
-		TConstArrayView<TMap<FName, FTransform>> Frames, FString& OutError, FFrameRate Rate = FrameRate());
+		TConstArrayView<TMap<FName, FTransform>> Frames, FString& OutError, FFrameRate Rate = FrameRate(),
+		TConstArrayView<TMap<FName, float>> Curves = {});
 }

@@ -18,6 +18,13 @@ namespace DTHPoseCharacter
 	DTHPOSECORE_API DTHPoseSolve::FRig Make(const USkeletalMesh& Mesh, const FDTHDazState& DazRest);
 
 	/** The mesh-space local pose that recreates State on the character, as its written sequence plays back (the preview). */
+	/**
+	 * A face bone the fitted face carries: a bone under the head. A state with a fitted face plays these at their
+	 * reference pose, turned by its FaceBones (the eyes, jaw and tongue past DTH's face rig: DTH's post-process keeps a
+	 * sequence's face bones and adds its poses on top, DTH.Pose.Face.BoneTracks), and the face curves make the rest.
+	 */
+	DTHPOSECORE_API bool IsCurveFaceBone(const FReferenceSkeleton& Ref, int32 Bone);
+
 	DTHPOSECORE_API TMap<FName, FTransform> LocalPose(const DTHPoseSolve::FRig& Rig, const USkeletalMesh& Mesh, const FDTHDazState& State);
 
 	/** The bone tracks, authored on the skeleton, that play back as LocalPose on this character. */

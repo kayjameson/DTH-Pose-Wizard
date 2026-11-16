@@ -23,12 +23,41 @@ namespace DTHPoseCharacter
 		return Rig;
 	}
 
+	bool IsCurveFaceBone(const FReferenceSkeleton& Ref, int32 Bone)
+	{
+		static const FName Head(TEXT("head"));
+		if (Ref.GetBoneName(Bone) == Head) return false;
+		for (int32 P = Ref.GetParentIndex(Bone); P != INDEX_NONE; P = Ref.GetParentIndex(P))
+		{
+			if (Ref.GetBoneName(P) == Head) return true;
+		}
+		return false;
+	}
+
+	namespace
+	{
+		/** The solve, with the face bones the face curves carry at the reference pose when the state has face curves. */
+		TMap<FName, FTransform> SolveWithFace(const DTHPoseSolve::FRig& Rig, const FReferenceSkeleton& Ref, const FDTHDazState& State)
+		{
+			TMap<FName, FTransform> Out = DTHPoseSolve::Solve(Rig, Ref, State);
+			if (!State.HasFace()) return Out;
+			for (int32 I = 0; I < Ref.GetNum(); ++I)
+			{
+				if (!IsCurveFaceBone(Ref, I)) continue;
+				FTransform T = Ref.GetRefBonePose()[I];
+				if (const FQuat* Turn = State.FaceBones.Find(Ref.GetBoneName(I))) T.SetRotation(T.GetRotation() * *Turn);
+				Out.FindChecked(Ref.GetBoneName(I)) = T;
+			}
+			return Out;
+		}
+	}
+
 	TMap<FName, FTransform> LocalPose(const DTHPoseSolve::FRig& Rig, const USkeletalMesh& Mesh, const FDTHDazState& State)
 	{
 		// What the written track plays back as: the solve through the engine's retarget rule. It differs from the solve only
 		// where DTH's retarget mode cannot carry a value (the pec clavicles' Skeleton mode keeps the bind translation).
 		const FReferenceSkeleton& Ref = Mesh.GetRefSkeleton();
-		TMap<FName, FTransform> Out = DTHPoseSolve::Solve(Rig, Ref, State);
+		TMap<FName, FTransform> Out = SolveWithFace(Rig, Ref, State);
 		const TArray<DTHRetarget::FBone> Retarget = DTHRetarget::Gather(*Mesh.GetSkeleton(), Mesh);
 		for (int32 I = 0; I < Ref.GetNum(); ++I)
 		{
@@ -41,7 +70,7 @@ namespace DTHPoseCharacter
 	TMap<FName, FTransform> Track(const DTHPoseSolve::FRig& Rig, const USkeletalMesh& Mesh, const FDTHDazState& State)
 	{
 		const FReferenceSkeleton& Ref = Mesh.GetRefSkeleton();
-		const TMap<FName, FTransform> Wanted = DTHPoseSolve::Solve(Rig, Ref, State);
+		const TMap<FName, FTransform> Wanted = SolveWithFace(Rig, Ref, State);
 		const TArray<DTHRetarget::FBone> Retarget = DTHRetarget::Gather(*Mesh.GetSkeleton(), Mesh);
 		TMap<FName, FTransform> Out;
 		for (int32 I = 0; I < Ref.GetNum(); ++I)
@@ -61,11 +90,19 @@ namespace DTHPoseCharacter
 		}
 		const DTHPoseSolve::FRig Rig = Make(Mesh, DazRest);
 		TArray<TMap<FName, FTransform>> Tracks;
-		for (const FDTHDazState& S : Frames) Tracks.Add(Track(Rig, Mesh, S));
+		TArray<TMap<FName, float>> Curves;
+		bool bFace = false;
+		for (const FDTHDazState& S : Frames)
+		{
+			Tracks.Add(Track(Rig, Mesh, S));
+			Curves.Add(S.FaceCurves);
+			bFace |= !S.FaceCurves.IsEmpty();
+		}
 		FString Unique = Name;
 		for (int32 N = 2; FPackageName::DoesPackageExist(Folder / Unique); ++N) Unique = FString::Printf(TEXT("%s_%d"), *Name, N);
 		// The sequence references the skeleton; the mesh is only read.
-		return DTHPoseWriter::Create(Folder, Unique, const_cast<USkeleton*>(Mesh.GetSkeleton()), Tracks, OutError, Rate);
+		return DTHPoseWriter::Create(Folder, Unique, const_cast<USkeleton*>(Mesh.GetSkeleton()), Tracks, OutError, Rate,
+			bFace ? TConstArrayView<TMap<FName, float>>(Curves) : TConstArrayView<TMap<FName, float>>());
 	}
 
 	FString AssetName(const FString& Label)

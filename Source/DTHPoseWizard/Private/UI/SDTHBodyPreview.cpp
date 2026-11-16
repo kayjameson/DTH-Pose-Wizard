@@ -82,11 +82,11 @@ void SDTHBodyPreview::SetCharacter(USkeletalMesh* Mesh)
 	FrameAfterTicks = 3;
 }
 
-void SDTHBodyPreview::SetPose(const TMap<FName, FTransform>& Pose)
+void SDTHBodyPreview::SetPose(const TMap<FName, FTransform>& Pose, const TMap<FName, float>& Curves)
 {
 	if (UDTHBonePoseDriverInstance* Driver = Component ? Cast<UDTHBonePoseDriverInstance>(Component->GetAnimInstance()) : nullptr)
 	{
-		Driver->SetPose(Pose, {});
+		Driver->SetPose(Pose, Curves);
 		FrameAfterTicks = 3;
 	}
 }

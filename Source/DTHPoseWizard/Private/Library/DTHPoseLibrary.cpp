@@ -21,7 +21,7 @@ void UDTHPoseLibrary::BeginBuild()
 	Blocks.Empty();
 	Writing.Reset();
 	NumRecords = 0;
-	NumLoaded = NumPartial = NumWithMissing = 0;
+	NumLoaded = NumPartial = NumWithMissing = NumWithFace = 0;
 	Cache.Reset();
 	LabelIndex.Reset();
 	Format = CurrentFormat;
@@ -32,6 +32,7 @@ void UDTHPoseLibrary::AddPose(FDTHPose&& Pose, const FDTHPoseData* PoseData)
 	NumLoaded += Pose.bLoaded ? 1 : 0;
 	NumPartial += Pose.bLoaded && Pose.bPartial ? 1 : 0;
 	NumWithMissing += Pose.Missing.IsEmpty() ? 0 : 1;
+	NumWithFace += Pose.HasFace() ? 1 : 0;
 	Poses.Add(MoveTemp(Pose));
 	if (!PoseData)
 	{
@@ -143,6 +144,7 @@ FDTHDazState UDTHPoseLibrary::State(int32 Pose) const
 		B.Rot = D.Rotations[I];
 		B.Pos = D.Positions[I];
 	}
+	if (Poses.IsValidIndex(Pose)) Poses[Pose].FaceTo(Out);
 	return Out;
 }
 
@@ -192,6 +194,10 @@ FDTHDazState UDTHPoseLibrary::Compose(int32 BasePose, int32 OverlayPose) const
 		B.Rot = Rot[I];
 		B.Pos = Pos[I];
 	}
+	// the face of the preset laid over, when it sets one (a hand pose leaves the base pose's face)
+	const bool bOverlayFace = Poses.IsValidIndex(OverlayPose) && Poses[OverlayPose].HasFace();
+	if (bOverlayFace) Poses[OverlayPose].FaceTo(Out);
+	else if (Poses.IsValidIndex(BasePose)) Poses[BasePose].FaceTo(Out);
 	return Out;
 }
 
@@ -240,6 +246,8 @@ void UDTHPoseLibrary::TakeBuild(UDTHPoseLibrary& Built)
 	NumLoaded = Built.NumLoaded;
 	NumPartial = Built.NumPartial;
 	NumWithMissing = Built.NumWithMissing;
+	NumWithFace = Built.NumWithFace;
+	FaceCharacter = Built.FaceCharacter;
 	Slots = MoveTemp(Built.Slots);
 	NumRecords = Built.NumRecords;
 	Blocks = MoveTemp(Built.Blocks);

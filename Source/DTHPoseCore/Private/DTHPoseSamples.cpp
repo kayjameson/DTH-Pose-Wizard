@@ -160,6 +160,14 @@ bool FDTHPoseSamples::Load(const FString& InFile, FString& OutError)
 		for (const TSharedPtr<FJsonValue>& V : *ChunkArray) Chunks.Add(Dir / V->AsString());
 		NumPoses = int32(Root->GetNumberField(TEXT("presets")));
 	}
+	// The face (version 3): the region, and per chunk its face geometry.
+	FString FaceFile;
+	const TArray<TSharedPtr<FJsonValue>>* FaceArray = nullptr;
+	if (Root->TryGetStringField(TEXT("face"), FaceFile) && !FaceFile.IsEmpty() && Root->TryGetArrayField(TEXT("faceGeometry"), FaceArray))
+	{
+		if (!DTHFaceRegion::LoadFace(Dir / FaceFile, Face, FaceUnit, OutError)) return false;
+		for (const TSharedPtr<FJsonValue>& V : *FaceArray) FaceChunks.Add(V->AsString().IsEmpty() ? FString() : Dir / V->AsString());
+	}
 	else if (Root->TryGetArrayField(TEXT("poses"), PoseArray))
 	{
 		NumPoses = PoseArray->Num();
@@ -196,8 +204,9 @@ bool FDTHPoseSamples::ReadPoses(TFunctionRef<bool(FDTHDazPose&&)> Visit, FString
 		if (Value->AsObject().IsValid() && Value->AsObject()->TryGetArrayField(TEXT("poses"), Poses)) VisitArray(*Poses, Visit);
 		return true;
 	}
-	for (const FString& Chunk : Chunks)
+	for (int32 C = 0; C < Chunks.Num(); ++C)
 	{
+		const FString& Chunk = Chunks[C];
 		TSharedPtr<FJsonValue> Value;
 		if (!ReadJson(Chunk, Value, OutError)) return false;
 		const TArray<TSharedPtr<FJsonValue>>* Poses = nullptr;
@@ -206,7 +215,20 @@ bool FDTHPoseSamples::ReadPoses(TFunctionRef<bool(FDTHDazPose&&)> Visit, FString
 			OutError = FString::Printf(TEXT("%s is not a list of samples."), *Chunk);
 			return false;
 		}
-		if (!VisitArray(*Poses, Visit)) return true;
+		// the chunk's face shapes, by the pose's place in the chunk
+		TArray<TArray<TArray<FVector3f>>> Faces;
+		if (HasFace() && FaceChunks.IsValidIndex(C) && !FaceChunks[C].IsEmpty())
+		{
+			Faces.SetNum(Poses->Num());
+			if (!DTHFaceRegion::ReadGeometry(FaceChunks[C], Face, FaceUnit, 0, Faces, OutError)) return false;
+		}
+		for (int32 Index = 0; Index < Poses->Num(); ++Index)
+		{
+			FDTHDazPose Pose;
+			if (!ReadPose((*Poses)[Index], Pose)) continue;
+			if (Faces.IsValidIndex(Index)) Pose.Face = MoveTemp(Faces[Index]);
+			if (!Visit(MoveTemp(Pose))) return true;
+		}
 	}
 	return true;
 }

@@ -21,7 +21,7 @@ namespace DTHPoseWriter
 	}
 
 	UAnimSequence* Create(const FString& Folder, const FString& Name, USkeleton* Skeleton,
-		TConstArrayView<TMap<FName, FTransform>> Frames, FString& OutError, FFrameRate Rate)
+		TConstArrayView<TMap<FName, FTransform>> Frames, FString& OutError, FFrameRate Rate, TConstArrayView<TMap<FName, float>> Curves)
 	{
 		if (!Skeleton || Frames.Num() == 0)
 		{
@@ -70,6 +70,24 @@ namespace DTHPoseWriter
 			}
 			Controller.AddBoneCurve(BoneName, false);
 			Controller.SetBoneTrackKeys(BoneName, Positions, Rotations, Scales, false);
+		}
+		// The face: every curve any frame sets is keyed on every frame (0 where a frame leaves it), so each key sets the
+		// whole face, as the Expression Wizard keys it.
+		TSet<FName> CurveNames;
+		for (const TMap<FName, float>& F : Curves) for (const TPair<FName, float>& C : F) CurveNames.Add(C.Key);
+		for (const FName& Curve : CurveNames)
+		{
+			const FAnimationCurveIdentifier Id(Curve, ERawCurveTrackTypes::RCT_Float);
+			Controller.AddCurve(Id, AACF_DefaultCurve, false);
+			TArray<FRichCurveKey> CurveKeys;
+			for (int32 K = 0; K < ModelKeys; ++K)
+			{
+				const float V = Curves.IsValidIndex(FMath::Min(K, Keys - 1)) ? Curves[FMath::Min(K, Keys - 1)].FindRef(Curve) : 0.0f;
+				FRichCurveKey Key(static_cast<float>(Rate.AsSeconds(FFrameNumber(K))), V);
+				Key.InterpMode = RCIM_Linear;
+				CurveKeys.Add(Key);
+			}
+			Controller.SetCurveKeys(Id, CurveKeys, false);
 		}
 		// UE 5.8 keeps a sequence's bone rotations as float Euler angles (UAnimSequencerController::SetBoneCurveKeys,
 		// FQuat4f::Euler), which loses up to ~0.03 deg near +-90 deg pitch (DTH's pec and IK bones rest there). Every

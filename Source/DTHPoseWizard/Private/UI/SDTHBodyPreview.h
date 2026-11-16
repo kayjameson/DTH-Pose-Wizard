@@ -23,7 +23,7 @@ public:
 	/** Shows Mesh (null clears it) and frames the whole body. */
 	void SetCharacter(USkeletalMesh* Mesh);
 	/** Plays this local pose (mesh space); bones not named stay at the reference pose. */
-	void SetPose(const TMap<FName, FTransform>& Pose);
+	void SetPose(const TMap<FName, FTransform>& Pose, const TMap<FName, float>& Curves = {});
 	/** Frames a view: body (front), side, threequarter, face or hands. False for an unknown name or no character. */
 	bool SetView(const FString& View);
 	/** Frames View, renders the preview and saves it as a PNG. */

@@ -63,6 +63,21 @@ namespace DTHPoseRig
 				OutLines.Add(FString::Printf(TEXT("ERROR: frame %d: %s"), Frame + I, *Error));
 				return false;
 			}
+			// The pose's own face: the face board's controls, and the layer for what the board cannot hold (as the
+			// Expression Wizard keys a face).
+			if (States[I].HasFace())
+			{
+				TMap<FName, FRigControlValue> Controls, Layer;
+				int32 Corrected = 0;
+				if (!DTHRigKeying::FaceBoard(Target.RigClass, States[I].FaceCurves, Controls, Layer, Corrected, Error)
+					|| !DTHRigKeying::Key(Target, Target.Track, Frame + I, Controls, {}, bStepped, Error)
+					|| !DTHRigKeying::Key(Target, Target.Layer, Frame + I, Layer, {}, bStepped, Error))
+				{
+					OutLines.Add(FString::Printf(TEXT("ERROR: frame %d, face: %s"), Frame + I, *Error));
+					return false;
+				}
+				OutLines.Add(FString::Printf(TEXT("Frame %d: keyed the pose's face: %d face-board controls, %d curves on the layer."), Frame + I, Controls.Num(), Layer.Num()));
+			}
 			// The layer makes every body bone exact; the rig's own reach is reported for information.
 			OutLines.Add(FString::Printf(TEXT("Frame %d: keyed %d body controls of %s and %d bones on the FK layer; the layer corrects %d bones the rig leaves off (largest %.2f deg at %s)."),
 				Frame + I, Fit.Values.Num(), *Target.RigClass->GetName(), Fit.Layer.Num(), Fit.Unreached.Num(), Fit.WorstDeg, *Fit.WorstBone.ToString()));

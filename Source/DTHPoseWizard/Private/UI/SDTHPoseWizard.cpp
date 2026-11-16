@@ -695,7 +695,7 @@ void SDTHPoseWizard::ShowPose(int32 Pose)
 	}
 	const DTHPoseSolve::FRig Rig = DTHPoseRig::Make(*Mesh, *Lib);
 	const FDTHDazState State = Lib->Poses.IsValidIndex(Pose) ? DTHPoseRig::Resolve(*Lib, Pose, Base) : Lib->State(INDEX_NONE);
-	Preview->SetPose(DTHPoseRig::LocalPose(Rig, *Mesh, State));
+	Preview->SetPose(DTHPoseRig::LocalPose(Rig, *Mesh, State), State.FaceCurves);
 }
 
 void SDTHPoseWizard::SetCharacter(USkeletalMesh* Mesh)

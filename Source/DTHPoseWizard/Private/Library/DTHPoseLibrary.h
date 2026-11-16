@@ -26,6 +26,25 @@ struct FDTHPose
 	UPROPERTY() bool bPartial = false;
 	/** What the preset does that a DTH character cannot reproduce, one line each ("morph: reason"). */
 	UPROPERTY() TArray<FString> Missing;
+
+	/**
+	 * The preset's own face (eyes, lids, jaw, lips, tongue, brows) as curves DTH's face rig plays: face-board curves and
+	 * DTH's morph curves, fitted to the face Daz shows (DTHFaceCore). Empty when the preset leaves the face at rest.
+	 */
+	UPROPERTY() TArray<FName> FaceCurves;
+	UPROPERTY() TArray<float> FaceValues;
+	/** Face bones turned past DTH's face rig (eyes, jaw, tongue): a local turn on top of each bone's reference pose. */
+	UPROPERTY() TArray<FName> FaceBoneNames;
+	UPROPERTY() TArray<FQuat> FaceBoneTurns;
+	/** How much of the Daz face's movement the curves reproduce, 0..1; below 0 when the preset sets no face. */
+	UPROPERTY() float FaceMatch = -1.0f;
+
+	bool HasFace() const { return !FaceCurves.IsEmpty() || !FaceBoneNames.IsEmpty(); }
+	void FaceTo(FDTHDazState& Out) const
+	{
+		for (int32 I = 0; I < FaceCurves.Num(); ++I) Out.FaceCurves.Add(FaceCurves[I], FaceValues[I]);
+		for (int32 I = 0; I < FaceBoneNames.Num(); ++I) Out.FaceBones.Add(FaceBoneNames[I], FaceBoneTurns[I]);
+	}
 };
 
 /** A pose's bones as Daz evaluated them on base Genesis 9: Daz world space, per library bone. */
@@ -77,6 +96,9 @@ public:
 	UPROPERTY() int32 NumLoaded = 0;
 	UPROPERTY() int32 NumPartial = 0;
 	UPROPERTY() int32 NumWithMissing = 0;
+	/** Poses that set a face (carried as face curves), and the character their faces were fitted on. */
+	UPROPERTY() int32 NumWithFace = 0;
+	UPROPERTY() FString FaceCharacter;
 
 	/** Built in the current layout, with its pose data (a copy made by duplicating the asset has none). */
 	bool IsCurrent() const { return Format == CurrentFormat && Blocks.Num() == (NumRecords + PosesPerBlock - 1) / PosesPerBlock; }
